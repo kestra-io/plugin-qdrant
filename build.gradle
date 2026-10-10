@@ -49,6 +49,9 @@ dependencies {
     annotationProcessor group: "io.kestra", name: "processor", version: kestraVersion
     compileOnly group: "io.kestra", name: "core", version: kestraVersion
     compileOnly group: "io.kestra", name: "script", version: kestraVersion
+
+    // qdrant
+    implementation "io.qdrant:client:1.19.0"
 }
 
 
@@ -87,6 +90,9 @@ dependencies {
     testImplementation "org.junit.jupiter:junit-jupiter-engine"
     testImplementation "org.hamcrest:hamcrest"
     testImplementation "org.hamcrest:hamcrest-library"
+    testImplementation "org.testcontainers:testcontainers:1.20.4"
+    testImplementation "org.testcontainers:qdrant:1.20.4"
+    testImplementation "org.testcontainers:junit-jupiter:1.20.4"
 }
 
 /**********************************************************************************************************************\

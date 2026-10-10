@@ -1,8 +1,8 @@
 group: io.kestra.plugin.qdrant
 name: "qdrant"
 title: "Qdrant"
-description: "Qdrant plugin for Kestra"
-body: ""
+description: "Tasks for creating and managing collections, upserting, retrieving, querying, and deleting points in the Qdrant vector database."
+body: "Integrate Kestra with Qdrant to build scalable vector search and AI workflows, including RAG pipelines and semantic search."
 videos: []
 createdBy: "Kestra Core Team"
 managedBy: "Kestra Core Team"
