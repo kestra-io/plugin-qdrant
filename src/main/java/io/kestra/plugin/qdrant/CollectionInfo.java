@@ -6,6 +6,7 @@ import io.kestra.core.models.annotations.PluginProperty;
 import io.kestra.core.models.property.Property;
 import io.kestra.core.models.tasks.RunnableTask;
 import io.kestra.core.runners.RunContext;
+import io.qdrant.client.grpc.Collections;
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.NotNull;
 import lombok.EqualsAndHashCode;
@@ -14,6 +15,10 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.ToString;
 import lombok.experimental.SuperBuilder;
+import java.util.LinkedHashMap;
+import java.util.Locale;
+import java.util.Map;
+import java.util.stream.Collectors;
 
 @SuperBuilder
 @ToString
@@ -22,7 +27,10 @@ import lombok.experimental.SuperBuilder;
 @NoArgsConstructor
 @Schema(
     title = "Get collection details and statistics from Qdrant",
-    description = "Retrieves information about a collection, including point counts, status, vector dimensions, and distance metric."
+    description = """
+        Retrieves collection status, point counts, vector dimensions and distance metric.
+        Includes payload index types and point counts, segment count and the configured optimizer settings.
+        """
 )
 @Plugin(
     examples = {
@@ -87,8 +95,47 @@ public class CollectionInfo extends QdrantConnection implements RunnableTask<Col
                 .indexedVectorsCount(vectorsCount)
                 .vectorSize(vectorSize)
                 .distance(distance)
+                .payloadSchema(info.getPayloadSchemaMap().entrySet().stream().collect(Collectors.toMap(
+                    Map.Entry::getKey,
+                    entry -> new PayloadIndex(
+                        entry.getValue().getDataType().name().toLowerCase(Locale.ROOT),
+                        entry.getValue().hasPoints() ? entry.getValue().getPoints() : null
+                    )
+                )))
+                .segmentsCount(info.getSegmentsCount())
+                .optimizerConfig(optimizerConfig(info))
                 .build();
         }
+    }
+
+    private static Map<String, Object> optimizerConfig(Collections.CollectionInfo info) {
+        if (!info.hasConfig() || !info.getConfig().hasOptimizerConfig()) {
+            return Map.of();
+        }
+        var config = info.getConfig().getOptimizerConfig();
+        var result = new LinkedHashMap<String, Object>();
+        if (config.hasDeletedThreshold()) result.put("deletedThreshold", config.getDeletedThreshold());
+        if (config.hasVacuumMinVectorNumber()) result.put("vacuumMinVectorNumber", config.getVacuumMinVectorNumber());
+        if (config.hasDefaultSegmentNumber()) result.put("defaultSegmentNumber", config.getDefaultSegmentNumber());
+        if (config.hasMaxSegmentSize()) result.put("maxSegmentSize", config.getMaxSegmentSize());
+        if (config.hasMemmapThreshold()) result.put("memmapThreshold", config.getMemmapThreshold());
+        if (config.hasIndexingThreshold()) result.put("indexingThreshold", config.getIndexingThreshold());
+        if (config.hasFlushIntervalSec()) result.put("flushIntervalSec", config.getFlushIntervalSec());
+        if (config.hasPreventUnoptimized()) result.put("preventUnoptimized", config.getPreventUnoptimized());
+        if (config.hasMaxOptimizationThreads()) {
+            var threads = config.getMaxOptimizationThreads();
+            if (threads.hasValue()) result.put("maxOptimizationThreads", threads.getValue());
+            else if (threads.hasSetting()) result.put("maxOptimizationThreads", threads.getSetting().name().toLowerCase(Locale.ROOT));
+        } else if (config.hasDeprecatedMaxOptimizationThreads()) {
+            result.put("maxOptimizationThreads", config.getDeprecatedMaxOptimizationThreads());
+        }
+        return result;
+    }
+
+    public record PayloadIndex(
+        @Schema(title = "Indexed field data type") String dataType,
+        @Schema(title = "Indexed point count", description = "Null when the server does not report the count.") Long points
+    ) {
     }
 
     @Builder
@@ -129,5 +176,14 @@ public class CollectionInfo extends QdrantConnection implements RunnableTask<Col
             description = "Distance metric configured for this collection."
         )
         private final String distance;
+
+        @Schema(title = "Payload indexes", description = "Indexed payload fields mapped to their data type and optional indexed point count. Empty when no fields are indexed.")
+        private final Map<String, PayloadIndex> payloadSchema;
+
+        @Schema(title = "Segment count", description = "Number of independent storage segments reported by Qdrant.")
+        private final Long segmentsCount;
+
+        @Schema(title = "Optimizer configuration", description = "Reported optimizer settings with camelCase keys. Unreported settings are omitted; maxOptimizationThreads is a number or the string auto.")
+        private final Map<String, Object> optimizerConfig;
     }
 }
