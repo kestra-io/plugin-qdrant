@@ -1,7 +1,7 @@
 package io.kestra.plugin.qdrant;
 
-import java.time.Duration;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.ExecutionException;
 
@@ -48,13 +48,13 @@ class CreatePayloadIndexTest extends QdrantTest {
     void shouldCreateEverySupportedPayloadIndexType() throws Exception {
         var runContext = runContextFactory.of();
         for (var schema : PayloadSchema.values()) {
-            var field = "field_" + schema.name().toLowerCase(java.util.Locale.ROOT);
+            var field = "field_" + schema.name().toLowerCase(Locale.ROOT);
             var output = task().fieldName(Property.ofValue(field)).fieldSchema(Property.ofValue(schema)).build().run(runContext);
             assertThat(output.getStatus(), is("Completed"));
             var info = CollectionInfo.builder()
                 .host(Property.ofValue(host)).port(Property.ofValue(port))
                 .collectionName(Property.ofValue(collectionName)).build().run(runContext);
-            assertThat(info.getPayloadSchema().get(field).dataType(), is(schema.name().toLowerCase(java.util.Locale.ROOT)));
+            assertThat(info.getPayloadSchema().get(field).dataType(), is(schema.name().toLowerCase(Locale.ROOT)));
         }
     }
 
@@ -105,11 +105,9 @@ class CreatePayloadIndexTest extends QdrantTest {
     }
 
     @Test
-    void shouldRejectBlankNamesAndNonPositiveTimeouts() {
+    void shouldRejectBlankNames() {
         var runContext = runContextFactory.of();
         assertThrows(IllegalArgumentException.class, () -> task().fieldName(Property.ofValue(" ")).build().run(runContext));
         assertThrows(IllegalArgumentException.class, () -> task().collectionName(Property.ofValue(" ")).build().run(runContext));
-        assertThrows(IllegalArgumentException.class, () -> task().requestTimeout(Property.ofValue(Duration.ZERO)).build().run(runContext));
-        assertThrows(IllegalArgumentException.class, () -> task().requestTimeout(Property.ofValue(Duration.ofSeconds(-1))).build().run(runContext));
     }
 }

@@ -1,9 +1,7 @@
 package io.kestra.plugin.qdrant;
 
 import io.qdrant.client.grpc.Collections;
-import io.swagger.v3.oas.annotations.media.Schema;
 
-@Schema(title = "Payload field type", description = "The data type of the payload field to index.")
 public enum PayloadSchema {
     KEYWORD, INTEGER, FLOAT, GEO, TEXT, BOOL, DATETIME, UUID;
 

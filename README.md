@@ -29,7 +29,7 @@ Teams building AI and retrieval-augmented generation (RAG) pipelines require sca
 Provides tasks under `io.kestra.plugin.qdrant`:
 - `CreateCollection`: Create vector collections with specified dimensions and distance metrics (`COSINE`, `DOT`, `EUCLID`, `MANHATTAN`).
 - `DeleteCollection`: Remove collections and their associated vectors.
-- `CollectionInfo`: Retrieve metrics, payload indexes, segment count and optimizer settings for a collection.
+- `CollectionInfo`: Retrieve metrics and payload indexes for a collection.
 - `CreatePayloadIndex`: Index a payload field with an explicit data type and optional completion wait.
 - `Upsert`: Batch upsert points with embeddings and payload metadata from inline lists or Kestra storage URIs (`kestra://`).
 - `Get`: Retrieve points by ID with `FETCH`, `FETCH_ONE`, or `STORE` fetch modes.

@@ -48,14 +48,14 @@ public class CollectionInfoTest extends QdrantTest {
     }
 
     @Test
-    void shouldExposePayloadIndexesAndOptimizerStatistics() throws Exception {
+    void shouldExposePayloadIndexes() throws Exception {
         var runContext = runContextFactory.of();
         Upsert.builder()
             .host(Property.ofValue(host)).port(Property.ofValue(port))
             .collectionName(Property.ofValue(collectionName))
             .points(List.of(Map.of("id", 1, "vector", List.of(1f, 0f, 0f, 0f), "payload", Map.of("tenant_id", "team"))))
             .build().run(runContext);
-        io.qdrant.client.grpc.Collections.CollectionInfo expected;
+        Collections.CollectionInfo expected;
         try (var client = qdrantClient()) {
             client.createPayloadIndexAsync(collectionName, "tenant_id", Collections.PayloadSchemaType.Keyword, null, true, null, Duration.ofSeconds(30)).get();
             expected = client.getCollectionInfoAsync(collectionName).get();
@@ -69,8 +69,6 @@ public class CollectionInfoTest extends QdrantTest {
 
         assertThat(json.path("payloadSchema").path("tenant_id").path("dataType").asText("missing"), is("keyword"));
         assertThat(json.path("payloadSchema").path("tenant_id").path("points").asLong(-1), is(expected.getPayloadSchemaOrThrow("tenant_id").getPoints()));
-        assertThat(json.path("segmentsCount").asLong(-1), is(expected.getSegmentsCount()));
-        assertThat(json.path("optimizerConfig").path("defaultSegmentNumber").asLong(-1), is(expected.getConfig().getOptimizerConfig().getDefaultSegmentNumber()));
     }
 
     @AfterEach

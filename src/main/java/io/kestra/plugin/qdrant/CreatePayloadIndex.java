@@ -1,6 +1,5 @@
 package io.kestra.plugin.qdrant;
 
-import java.time.Duration;
 import java.util.concurrent.ExecutionException;
 
 import io.kestra.core.models.annotations.Example;
@@ -48,30 +47,46 @@ import lombok.experimental.SuperBuilder;
         """)
 })
 public class CreatePayloadIndex extends QdrantConnection implements RunnableTask<CreatePayloadIndex.Output> {
-    @Schema(title = "Collection name", description = "The existing collection containing the payload field.")
+    @Schema(
+        title = "Collection name",
+        description = """
+            The existing collection containing the payload field.
+            """
+    )
     @NotNull
     @PluginProperty(group = "main")
     private Property<String> collectionName;
 
-    @Schema(title = "Payload field name", description = "The payload field to index, including dotted paths for nested fields.")
+    @Schema(
+        title = "Payload field name",
+        description = """
+            The payload field to index, including dotted paths for nested fields.
+            """
+    )
     @NotNull
     @PluginProperty(group = "main")
     private Property<String> fieldName;
 
-    @Schema(title = "Payload field schema", description = "The data type of the indexed payload field.")
+    @Schema(
+        title = "Payload field schema",
+        description = """
+            The data type of the indexed payload field.
+            One of KEYWORD, INTEGER, FLOAT, GEO, TEXT, BOOL, DATETIME or UUID.
+            """
+    )
     @NotNull
     @PluginProperty(group = "main")
     private Property<PayloadSchema> fieldSchema;
 
-    @Schema(title = "Wait for completion", description = "Defaults to true. False returns after the operation is acknowledged, before the index is necessarily ready.")
+    @Schema(
+        title = "Wait for completion",
+        description = """
+            Defaults to true. False returns after the operation is acknowledged, before the index is necessarily ready.
+            """
+    )
     @Builder.Default
     @PluginProperty(group = "execution")
     private Property<Boolean> wait = Property.ofValue(true);
-
-    @Schema(title = "Request timeout", description = "Maximum duration of the gRPC request. Must be positive; defaults to PT30S.")
-    @Builder.Default
-    @PluginProperty(group = "reliability")
-    private Property<Duration> requestTimeout = Property.ofValue(Duration.ofSeconds(30));
 
     @Override
     public Output run(RunContext runContext) throws Exception {
@@ -82,17 +97,13 @@ public class CreatePayloadIndex extends QdrantConnection implements RunnableTask
         var rFieldSchema = runContext.render(fieldSchema).as(PayloadSchema.class)
             .orElseThrow(() -> new IllegalArgumentException("fieldSchema is required. Select the payload field's data type."));
         var rWait = runContext.render(wait).as(Boolean.class).orElse(true);
-        var rRequestTimeout = runContext.render(requestTimeout).as(Duration.class).orElse(Duration.ofSeconds(30));
         if (rCollectionName.isBlank() || rFieldName.isBlank()) {
             throw new IllegalArgumentException("collectionName and fieldName must not be blank. Set the collection and payload field names.");
-        }
-        if (rRequestTimeout.isNegative() || rRequestTimeout.isZero()) {
-            throw new IllegalArgumentException("requestTimeout must be positive. Set a duration such as PT30S.");
         }
 
         try (var client = buildClient(runContext)) {
             var result = client.createPayloadIndexAsync(
-                rCollectionName, rFieldName, rFieldSchema.toGrpc(), null, rWait, null, rRequestTimeout
+                rCollectionName, rFieldName, rFieldSchema.toGrpc(), null, rWait, null, null
             ).get();
             return Output.builder()
                 .operationId(result.hasOperationId() ? result.getOperationId() : null)
@@ -100,7 +111,7 @@ public class CreatePayloadIndex extends QdrantConnection implements RunnableTask
                 .build();
         } catch (ExecutionException e) {
             throw new IllegalStateException(
-                "Could not create payload index '%s' in collection '%s'. Check the collection name, field schema and write permissions.".formatted(rFieldName, rCollectionName),
+                "Could not create payload index '%s' in collection '%s'. Check the collection name, field schema, write permissions and the task timeout.".formatted(rFieldName, rCollectionName),
                 e.getCause()
             );
         }
@@ -109,10 +120,20 @@ public class CreatePayloadIndex extends QdrantConnection implements RunnableTask
     @Builder
     @Getter
     public static class Output implements io.kestra.core.models.tasks.Output {
-        @Schema(title = "Operation ID", description = "Sequential operation identifier, when reported by Qdrant.")
+        @Schema(
+            title = "Operation ID",
+            description = """
+                Sequential operation identifier, when reported by Qdrant.
+                """
+        )
         private final Long operationId;
 
-        @Schema(title = "Operation status", description = "Acknowledged means queued; Completed means applied. Inspect this status when wait is false.")
+        @Schema(
+            title = "Operation status",
+            description = """
+                Acknowledged means queued. Completed means applied. Inspect this status when wait is false.
+                """
+        )
         private final String status;
     }
 }
