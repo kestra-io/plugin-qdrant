@@ -34,6 +34,7 @@ Provides tasks under `io.kestra.plugin.qdrant`:
 - `Upsert`: Batch upsert points with embeddings and payload metadata from inline lists or Kestra storage URIs (`kestra://`).
 - `Get`: Retrieve points by ID with `FETCH`, `FETCH_ONE`, or `STORE` fetch modes.
 - `Query`: Vector similarity search supporting raw vectors or point IDs, filters, score thresholds, and multiple fetch modes.
+- `HybridQuery`: Hybrid retrieval over a named dense vector space and a named sparse vector space, bounded per-branch candidate limits, and server-side Reciprocal Rank Fusion.
 - `Delete`: Delete points by ID or matching filter criteria.
 
 ## Documentation
