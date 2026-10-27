@@ -14,6 +14,9 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.ToString;
 import lombok.experimental.SuperBuilder;
+import java.util.Locale;
+import java.util.Map;
+import java.util.stream.Collectors;
 
 @SuperBuilder
 @ToString
@@ -22,7 +25,10 @@ import lombok.experimental.SuperBuilder;
 @NoArgsConstructor
 @Schema(
     title = "Get collection details and statistics from Qdrant",
-    description = "Retrieves information about a collection, including point counts, status, vector dimensions, and distance metric."
+    description = """
+        Retrieves collection status, point counts, vector dimensions and distance metric.
+        Includes the payload indexes with their data type and indexed point count.
+        """
 )
 @Plugin(
     examples = {
@@ -87,8 +93,26 @@ public class CollectionInfo extends QdrantConnection implements RunnableTask<Col
                 .indexedVectorsCount(vectorsCount)
                 .vectorSize(vectorSize)
                 .distance(distance)
+                .payloadSchema(info.getPayloadSchemaMap().entrySet().stream().collect(Collectors.toMap(
+                    Map.Entry::getKey,
+                    entry -> new PayloadIndex(
+                        entry.getValue().getDataType().name().toLowerCase(Locale.ROOT),
+                        entry.getValue().hasPoints() ? entry.getValue().getPoints() : null
+                    )
+                )))
                 .build();
         }
+    }
+
+    public record PayloadIndex(
+        @Schema(title = "Indexed field data type") String dataType,
+        @Schema(
+            title = "Indexed point count",
+            description = """
+                Null when the server does not report the count.
+                """
+        ) Long points
+    ) {
     }
 
     @Builder
@@ -129,5 +153,14 @@ public class CollectionInfo extends QdrantConnection implements RunnableTask<Col
             description = "Distance metric configured for this collection."
         )
         private final String distance;
+
+        @Schema(
+            title = "Payload indexes",
+            description = """
+                Indexed payload fields mapped to their data type and optional indexed point count.
+                Empty when no fields are indexed.
+                """
+        )
+        private final Map<String, PayloadIndex> payloadSchema;
     }
 }

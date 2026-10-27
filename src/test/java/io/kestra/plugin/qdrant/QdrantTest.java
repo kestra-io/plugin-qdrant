@@ -19,7 +19,8 @@ public abstract class QdrantTest {
     protected static final int DIMENSION = 4;
 
     @Container
-    protected static QdrantContainer qdrantContainer = new QdrantContainer("qdrant/qdrant:v1.19.1");
+    protected static QdrantContainer qdrantContainer = new QdrantContainer("qdrant/qdrant:v1.19.1")
+        .withCreateContainerCmdModifier(command -> command.getHostConfig().withMemory(1024L * 1024 * 1024));
 
     protected static String host;
     protected static int port;

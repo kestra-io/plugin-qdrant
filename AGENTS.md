@@ -25,7 +25,8 @@ Single-module plugin with a flat package layout (no sub-packages):
 | `io.kestra.plugin.qdrant.QdrantConnection` | Abstract base with shared connection properties and gRPC client builder |
 | `io.kestra.plugin.qdrant.CreateCollection` | Create a collection with vector dimension size and distance metric |
 | `io.kestra.plugin.qdrant.DeleteCollection` | Delete a collection and all points contained within it |
-| `io.kestra.plugin.qdrant.CollectionInfo` | Retrieve status, vector dimension, and point statistics for a collection |
+| `io.kestra.plugin.qdrant.CollectionInfo` | Retrieve status, vector dimension, point statistics and payload indexes |
+| `io.kestra.plugin.qdrant.CreatePayloadIndex` | Index a payload field with an explicit schema type and optional completion wait |
 | `io.kestra.plugin.qdrant.Upsert` | Batch upsert points with embeddings and payloads from inline list or Kestra storage URI |
 | `io.kestra.plugin.qdrant.Get` | Retrieve points by ID with `FETCH`, `FETCH_ONE`, or `STORE` fetch modes |
 | `io.kestra.plugin.qdrant.Query` | Perform vector similarity search by embedding vector or existing point ID |
@@ -42,6 +43,8 @@ plugin-qdrant/
 |   |-- CreateCollection.java
 |   |-- DeleteCollection.java
 |   |-- CollectionInfo.java
+|   |-- CreatePayloadIndex.java
+|   |-- PayloadSchema.java
 |   |-- Upsert.java
 |   |-- Get.java
 |   |-- Query.java
