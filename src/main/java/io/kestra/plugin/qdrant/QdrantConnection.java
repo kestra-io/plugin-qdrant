@@ -484,6 +484,23 @@ public abstract class QdrantConnection extends Task implements QdrantConnectionI
         return Collections.emptyList();
     }
 
+    protected static Map<String, Object> mapScoredPoint(Points.ScoredPoint scoredPoint) {
+        var map = new LinkedHashMap<String, Object>();
+        map.put("id", fromPointId(scoredPoint.getId()));
+        map.put("score", scoredPoint.getScore());
+        map.put("version", scoredPoint.getVersion());
+        if (scoredPoint.getPayloadCount() > 0) {
+            map.put("payload", fromPayloadMap(scoredPoint.getPayloadMap()));
+        }
+        if (scoredPoint.hasVectors()) {
+            var vector = fromVectorsOutput(scoredPoint.getVectors());
+            if (vector != null) {
+                map.put("vector", vector);
+            }
+        }
+        return map;
+    }
+
     public static Object fromVectorsOutput(Points.VectorsOutput vectorsOutput) {
         if (vectorsOutput == null) {
             return null;

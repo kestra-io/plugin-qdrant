@@ -21,7 +21,6 @@ import lombok.NoArgsConstructor;
 import lombok.ToString;
 import lombok.experimental.SuperBuilder;
 
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -255,25 +254,8 @@ public class Query extends QdrantConnection implements RunnableTask<FetchOutput>
             runContext.logger().info("Searching collection '{}' with limit={}", rCollectionName, rLimit);
             List<Points.ScoredPoint> results = client.searchAsync(searchBuilder.build()).get();
 
-            return buildFetchOutput(runContext, rFetchType, results, this::mapScoredPoint);
+            return buildFetchOutput(runContext, rFetchType, results, QdrantConnection::mapScoredPoint);
         }
-    }
-
-    private Map<String, Object> mapScoredPoint(Points.ScoredPoint sp) {
-        Map<String, Object> map = new LinkedHashMap<>();
-        map.put("id", fromPointId(sp.getId()));
-        map.put("score", sp.getScore());
-        map.put("version", sp.getVersion());
-        if (sp.getPayloadCount() > 0) {
-            map.put("payload", fromPayloadMap(sp.getPayloadMap()));
-        }
-        if (sp.hasVectors()) {
-            Object vectorObj = fromVectorsOutput(sp.getVectors());
-            if (vectorObj != null) {
-                map.put("vector", vectorObj);
-            }
-        }
-        return map;
     }
 
     int resolveLimit(RunContext runContext) throws io.kestra.core.exceptions.IllegalVariableEvaluationException {
