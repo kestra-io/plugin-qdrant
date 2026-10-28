@@ -30,6 +30,7 @@ Single-module plugin with a flat package layout (no sub-packages):
 | `io.kestra.plugin.qdrant.Upsert` | Batch upsert points with dense, named and sparse embeddings and payloads from inline list or Kestra storage URI |
 | `io.kestra.plugin.qdrant.Get` | Retrieve points by ID with `FETCH`, `FETCH_ONE`, or `STORE` fetch modes |
 | `io.kestra.plugin.qdrant.Query` | Perform vector similarity search by embedding vector or existing point ID |
+| `io.kestra.plugin.qdrant.SparseQuery` | Query a named sparse vector space with a sparse vector, the sparse-only counterpart of `Query` |
 | `io.kestra.plugin.qdrant.HybridQuery` | Query a named dense and a named sparse vector space in one request and fuse both candidate lists with server-side RRF |
 | `io.kestra.plugin.qdrant.Delete` | Delete points by ID or matching filter |
 
@@ -50,6 +51,7 @@ plugin-qdrant/
 |   |-- Upsert.java
 |   |-- Get.java
 |   |-- Query.java
+|   |-- SparseQuery.java
 |   |-- HybridQuery.java
 |   |-- Delete.java
 |   \-- package-info.java

@@ -102,6 +102,18 @@ public abstract class QdrantConnection extends Task implements QdrantConnectionI
         return new QdrantClient(builder.build());
     }
 
+    protected static List<Object> renderList(RunContext runContext, Property<List<Object>> property, String name)
+        throws IllegalVariableEvaluationException {
+        if (property == null) {
+            throw new IllegalArgumentException("'" + name + "' is required");
+        }
+        var rList = runContext.render(property).asList(Object.class);
+        if (rList == null) {
+            throw new IllegalArgumentException("'" + name + "' is required");
+        }
+        return rList;
+    }
+
     protected static List<Float> toFiniteFloats(List<Object> values, String name) {
         var result = new ArrayList<Float>(values.size());
         for (var value : values) {
