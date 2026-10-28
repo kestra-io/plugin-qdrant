@@ -29,7 +29,7 @@ All tasks inherit common connection properties:
 ### Requirements
 
 - Qdrant server 1.10 or later, which is where the `QueryPoints` prefetch and fusion API landed. The plugin is built against the Qdrant Java client 1.19.0 and is tested against Qdrant 1.19.1.
-- The collection must already declare both spaces: a named dense vector in its `vectors` config and a named sparse vector in its `sparse_vectors` config. `HybridQuery` does not create collections, does not configure sparse vector spaces and does not upsert sparse vectors. Provision the collection and ingest sparse vectors through the Qdrant API or client, then point `denseVectorName` and `sparseVectorName` at the configured names. An unknown name fails the run with the server error `Not existing vector name error`.
+- The collection must declare both spaces: a named dense vector in its `vectors` config and a named sparse vector in its `sparse_vectors` config. `CreateCollection` can create that layout with `vectorName` and `sparseVectors` (a sparse space can use the `IDF` modifier for BM25-like weighting), and `Upsert` loads points whose named `vectors` map holds a dense list and a sparse `{indices, values}` map. `HybridQuery` itself only queries: it neither creates collections nor writes points. Point `denseVectorName` and `sparseVectorName` at the configured names. An unknown name fails the run with the server error `Not existing vector name error`.
 
 ### Query vectors
 
@@ -48,7 +48,7 @@ All tasks inherit common connection properties:
 
 ### Scope
 
-Only RRF is exposed. Distribution-Based Score Fusion, RRF parameter tuning and native sparse collection or upsert configuration are not part of this task. Hybrid retrieval is opt-in and `Query` is unchanged: fusion does not improve every workload, so measure dense-only against fused retrieval on your own labelled queries before adopting it.
+Only RRF is exposed. Distribution-Based Score Fusion and RRF parameter tuning are not part of this task. Hybrid retrieval is opt-in and `Query` is unchanged: fusion does not improve every workload, so measure dense-only against fused retrieval on your own labelled queries before adopting it.
 
 ## Filter DSL
 

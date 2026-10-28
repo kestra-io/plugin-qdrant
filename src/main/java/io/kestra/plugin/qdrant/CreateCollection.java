@@ -9,12 +9,18 @@ import io.kestra.core.runners.RunContext;
 import io.qdrant.client.grpc.Collections;
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.NotNull;
+import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.EqualsAndHashCode;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.ToString;
 import lombok.experimental.SuperBuilder;
+
+import java.util.HashSet;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
 
 @SuperBuilder
 @ToString
@@ -23,7 +29,11 @@ import lombok.experimental.SuperBuilder;
 @NoArgsConstructor
 @Schema(
     title = "Create a collection in Qdrant",
-    description = "Creates a new single-vector collection with specified vector dimension and distance metric. Collections with multiple named vectors should be created via the Qdrant API or CLI."
+    description = """
+        Creates a new collection with a dense vector of the given dimension and distance metric. By default the dense \
+        vector is unnamed. Set `vectorName` to give it a name and `sparseVectors` to add named sparse vector spaces, \
+        which is the layout `HybridQuery` needs. Collections with several named dense vectors should be created via \
+        the Qdrant API or CLI."""
 )
 @Plugin(
     examples = {
@@ -43,6 +53,28 @@ import lombok.experimental.SuperBuilder;
                     collectionName: docs
                     vectorSize: 1536
                     distance: COSINE
+                """
+        ),
+        @Example(
+            title = "Create a collection for hybrid retrieval, with a named dense vector and a named sparse vector",
+            full = true,
+            code = """
+                id: qdrant_create_hybrid_collection
+                namespace: company.team
+
+                tasks:
+                  - id: create_collection
+                    type: io.kestra.plugin.qdrant.CreateCollection
+                    host: "{{ secret('QDRANT_HOST') }}"
+                    apiKey: "{{ secret('QDRANT_API_KEY') }}"
+                    tlsEnabled: true
+                    collectionName: docs
+                    vectorName: text_dense
+                    vectorSize: 1536
+                    distance: COSINE
+                    sparseVectors:
+                      - name: text_sparse
+                        modifier: IDF
                 """
         )
     }
@@ -73,6 +105,24 @@ public class CreateCollection extends QdrantConnection implements RunnableTask<C
     @Builder.Default
     @PluginProperty(group = "main")
     private Property<Distance> distance = Property.ofValue(Distance.COSINE);
+
+    @Schema(
+        title = "Dense vector name",
+        description = """
+            Name of the dense vector space. Unset creates the unnamed default vector. Set it when the collection also \
+            holds sparse vectors that are queried together with the dense one, for example by `HybridQuery`."""
+    )
+    @PluginProperty(group = "main")
+    private Property<String> vectorName;
+
+    @Schema(
+        title = "Sparse vector spaces",
+        description = """
+            Named sparse vector spaces to create next to the dense vector. Each name must be unique and different \
+            from `vectorName`. Points get their sparse vectors later through `Upsert`."""
+    )
+    @PluginProperty(group = "main")
+    private List<SparseVectorSpace> sparseVectors;
 
     @Schema(
         title = "Payload memory storage policy",
@@ -111,7 +161,16 @@ public class CreateCollection extends QdrantConnection implements RunnableTask<C
             rPayloadMemory = PayloadMemory.COLD;
         }
 
-        runContext.logger().info("Creating Qdrant collection '{}' with size {} and distance {}", rCollectionName, rVectorSize, rDistance);
+        var rVectorName = runContext.render(this.vectorName).as(String.class).orElse(null);
+        if (rVectorName != null && rVectorName.isBlank()) {
+            throw new IllegalArgumentException("'vectorName' must not be blank, leave it unset for the unnamed default vector");
+        }
+        var rSparseVectors = renderSparseVectors(runContext, rVectorName);
+
+        runContext.logger().info(
+            "Creating Qdrant collection '{}' with size {} and distance {}, dense vector name '{}' and sparse vectors {}",
+            rCollectionName, rVectorSize, rDistance, rVectorName, rSparseVectors.keySet()
+        );
 
         Collections.VectorParams vectorParams = Collections.VectorParams.newBuilder()
             .setSize(rVectorSize)
@@ -119,11 +178,19 @@ public class CreateCollection extends QdrantConnection implements RunnableTask<C
             .setOnDisk(rOnDiskVectors)
             .build();
 
-        Collections.CreateCollection.Builder createBuilder = Collections.CreateCollection.newBuilder()
+        var vectorsConfig = rVectorName == null
+            ? Collections.VectorsConfig.newBuilder().setParams(vectorParams).build()
+            : Collections.VectorsConfig.newBuilder()
+                .setParamsMap(Collections.VectorParamsMap.newBuilder().putMap(rVectorName, vectorParams).build())
+                .build();
+
+        var createBuilder = Collections.CreateCollection.newBuilder()
             .setCollectionName(rCollectionName)
-            .setVectorsConfig(Collections.VectorsConfig.newBuilder()
-                .setParams(vectorParams)
-                .build());
+            .setVectorsConfig(vectorsConfig);
+
+        if (!rSparseVectors.isEmpty()) {
+            createBuilder.setSparseVectorsConfig(Collections.SparseVectorConfig.newBuilder().putAllMap(rSparseVectors).build());
+        }
 
         if (rPayloadMemory != null) {
             createBuilder.setPayload(Collections.PayloadStorageParams.newBuilder()
@@ -140,6 +207,81 @@ public class CreateCollection extends QdrantConnection implements RunnableTask<C
                 .success(response.getResult())
                 .build();
         }
+    }
+
+    private Map<String, Collections.SparseVectorParams> renderSparseVectors(RunContext runContext, String rVectorName) throws Exception {
+        var result = new LinkedHashMap<String, Collections.SparseVectorParams>();
+        if (this.sparseVectors == null) {
+            return result;
+        }
+
+        var seen = new HashSet<String>();
+        for (var space : this.sparseVectors) {
+            if (space == null) {
+                throw new IllegalArgumentException("'sparseVectors' must not contain an empty entry");
+            }
+            var rName = runContext.render(space.getName()).as(String.class)
+                .orElseThrow(() -> new IllegalArgumentException("every entry of 'sparseVectors' needs a 'name'"));
+            if (rName.isBlank()) {
+                throw new IllegalArgumentException("a sparse vector 'name' must not be blank");
+            }
+            if (rName.equals(rVectorName)) {
+                throw new IllegalArgumentException("sparse vector '" + rName + "' has the same name as the dense vector, names must be unique");
+            }
+            if (!seen.add(rName)) {
+                throw new IllegalArgumentException("sparse vector '" + rName + "' is declared twice, names must be unique");
+            }
+
+            var index = Collections.SparseIndexConfig.newBuilder()
+                .setOnDisk(runContext.render(space.getOnDisk()).as(Boolean.class).orElse(false));
+            var rThreshold = runContext.render(space.getFullScanThreshold()).as(Integer.class).orElse(null);
+            if (rThreshold != null) {
+                validateRange("sparseVectors[" + rName + "].fullScanThreshold", rThreshold, 0, Integer.MAX_VALUE);
+                index.setFullScanThreshold(rThreshold);
+            }
+
+            var rModifier = runContext.render(space.getModifier()).as(SparseModifier.class).orElse(SparseModifier.NONE);
+            result.put(
+                rName,
+                Collections.SparseVectorParams.newBuilder().setIndex(index).setModifier(rModifier.toGrpc()).build()
+            );
+        }
+        return result;
+    }
+
+    @Builder
+    @Getter
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class SparseVectorSpace {
+        @Schema(
+            title = "Sparse vector name",
+            description = "Name of the sparse vector space, unique in the collection and different from the dense vector name."
+        )
+        @NotNull
+        private Property<String> name;
+
+        @Schema(
+            title = "Store the sparse index on disk",
+            description = "Whether to keep the sparse index on disk instead of in RAM (default: false)."
+        )
+        @Builder.Default
+        private Property<Boolean> onDisk = Property.ofValue(false);
+
+        @Schema(
+            title = "Full scan threshold",
+            description = """
+                Size in kilobytes under which Qdrant scans the segment instead of using the sparse index (min: 0). \
+                Unset keeps the Qdrant default."""
+        )
+        private Property<Integer> fullScanThreshold;
+
+        @Schema(
+            title = "Weight modifier",
+            description = "Use IDF to let Qdrant weight terms by inverse document frequency, as BM25 does (default: NONE)."
+        )
+        @Builder.Default
+        private Property<SparseModifier> modifier = Property.ofValue(SparseModifier.NONE);
     }
 
     @Builder
