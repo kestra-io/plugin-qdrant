@@ -603,6 +603,14 @@ public class HybridQueryTest extends QdrantTest {
         assertThat(failure.getMessage(), containsString("'queryTimeout' must be at least 1 second"));
     }
 
+    @Test
+    void queryTimeoutDefaultsToThirtySeconds() throws Exception {
+        var runContext = runContextFactory.of();
+        var task = task().build();
+
+        assertThat(runContext.render(task.getQueryTimeout()).as(Duration.class).orElseThrow(), is(Duration.ofSeconds(30)));
+    }
+
     @AfterEach
     void tearDown() {
         if (!isQdrantAvailable()) return;

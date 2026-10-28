@@ -40,7 +40,7 @@ All tasks inherit common connection properties:
 
 - `limit` bounds the fused result (default `10`, from `1` to `1000`).
 - `candidateLimit` bounds how many candidates each branch hands to fusion (default `50`, from `1` to `10000`). `denseCandidateLimit` and `sparseCandidateLimit` override it per branch. Every effective candidate limit must be greater than or equal to `limit`, so fusion always has enough candidates to fill the requested result. Raising the candidate limits gives fusion a wider view at the cost of more work per branch.
-- `queryTimeout` is optional, truncated to whole seconds, and bounds both the server-side request and the client call. Without it, the Qdrant instance applies its own global timeout. The per-run gRPC client is closed when the task ends.
+- `queryTimeout` defaults to `PT30S`, is truncated to whole seconds (minimum 1 second) and bounds both the server-side request and the gRPC call deadline, so a stalled server or network cannot hold a worker thread indefinitely. Raise it for very large candidate limits. The per-run gRPC client is closed when the task ends.
 
 ### Filters
 

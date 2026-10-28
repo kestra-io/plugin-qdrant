@@ -1,5 +1,6 @@
 package io.kestra.plugin.qdrant;
 
+import io.kestra.core.exceptions.IllegalVariableEvaluationException;
 import io.kestra.core.models.annotations.Example;
 import io.kestra.core.models.annotations.Plugin;
 import io.kestra.core.models.annotations.PluginProperty;
@@ -8,7 +9,6 @@ import io.kestra.core.models.tasks.RunnableTask;
 import io.kestra.core.models.tasks.common.FetchOutput;
 import io.kestra.core.models.tasks.common.FetchType;
 import io.kestra.core.runners.RunContext;
-import io.kestra.core.exceptions.IllegalVariableEvaluationException;
 import io.qdrant.client.QueryFactory;
 import io.qdrant.client.WithPayloadSelectorFactory;
 import io.qdrant.client.WithVectorsSelectorFactory;
@@ -25,7 +25,6 @@ import lombok.experimental.SuperBuilder;
 
 import java.time.Duration;
 import java.util.ArrayList;
-import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -48,7 +47,7 @@ import java.util.Set;
 @Plugin(
     examples = {
         @Example(
-            title = "Fuse a dense branch and a sparse branch with server-side RRF, filtering both branches and the fused result",
+            title = "Fuse a dense branch and a sparse branch with server-side RRF, filtering both branches and the fused result. The `docs` collection must already hold points with a `text_dense` dense vector and a `text_sparse` sparse vector.",
             full = true,
             code = """
                 id: qdrant_hybrid_query
@@ -61,19 +60,6 @@ import java.util.Set;
                     defaults: [0.9, 0.1, 0.0, 0.0]
 
                 tasks:
-                  - id: prepare_collection
-                    type: io.kestra.plugin.core.http.Request
-                    uri: "https://{{ secret('QDRANT_HOST') }}:6333/collections/docs"
-                    method: PUT
-                    contentType: application/json
-                    headers:
-                      api-key: "{{ secret('QDRANT_API_KEY') }}"
-                    body: |
-                      {
-                        "vectors": {"text_dense": {"size": 4, "distance": "Cosine"}},
-                        "sparse_vectors": {"text_sparse": {}}
-                      }
-
                   - id: hybrid_search
                     type: io.kestra.plugin.qdrant.HybridQuery
                     host: "{{ secret('QDRANT_HOST') }}"
@@ -148,10 +134,13 @@ public class HybridQuery extends QdrantConnection implements RunnableTask<FetchO
     private static final int DEFAULT_CANDIDATE_LIMIT = 50;
     private static final int MAX_LIMIT = 1000;
     private static final int MAX_CANDIDATE_LIMIT = 10000;
+    private static final Duration DEFAULT_QUERY_TIMEOUT = Duration.ofSeconds(30);
 
     @Schema(
         title = "Collection name",
-        description = "The name of the collection to search in. It must expose both the dense and the sparse vector space named below."
+        description = """
+            The name of the collection to search in. It must expose both the dense and the sparse vector space \
+            named below."""
     )
     @NotNull
     @PluginProperty(group = "main")
@@ -159,7 +148,9 @@ public class HybridQuery extends QdrantConnection implements RunnableTask<FetchO
 
     @Schema(
         title = "Dense vector space name",
-        description = "Name of the dense vector space to use for the dense prefetch branch, as configured on the collection."
+        description = """
+            Name of the dense vector space to use for the dense prefetch branch, as configured on the \
+            collection."""
     )
     @NotNull
     @PluginProperty(group = "main")
@@ -167,7 +158,9 @@ public class HybridQuery extends QdrantConnection implements RunnableTask<FetchO
 
     @Schema(
         title = "Dense query vector",
-        description = "Dense query embedding, as a list of finite numbers. Its dimension must match the dense vector space of the collection."
+        description = """
+            Dense query embedding, as a list of finite numbers. Its dimension must match the dense vector space \
+            of the collection."""
     )
     @NotNull
     @PluginProperty(group = "main")
@@ -175,7 +168,9 @@ public class HybridQuery extends QdrantConnection implements RunnableTask<FetchO
 
     @Schema(
         title = "Sparse vector space name",
-        description = "Name of the sparse vector space to use for the sparse prefetch branch, as configured on the collection."
+        description = """
+            Name of the sparse vector space to use for the sparse prefetch branch, as configured on the \
+            collection."""
     )
     @NotNull
     @PluginProperty(group = "main")
@@ -183,7 +178,9 @@ public class HybridQuery extends QdrantConnection implements RunnableTask<FetchO
 
     @Schema(
         title = "Sparse query indices",
-        description = "Indices of the non-zero dimensions of the sparse query vector, as a list of distinct non-negative whole numbers. Must have the same number of elements as 'sparseValues'."
+        description = """
+            Indices of the non-zero dimensions of the sparse query vector, as a list of distinct non-negative \
+            whole numbers. Must have the same number of elements as 'sparseValues'."""
     )
     @NotNull
     @PluginProperty(group = "main")
@@ -191,7 +188,9 @@ public class HybridQuery extends QdrantConnection implements RunnableTask<FetchO
 
     @Schema(
         title = "Sparse query values",
-        description = "Weights of the non-zero dimensions of the sparse query vector, as a list of finite numbers positionally paired with 'sparseIndices'."
+        description = """
+            Weights of the non-zero dimensions of the sparse query vector, as a list of finite numbers \
+            positionally paired with 'sparseIndices'."""
     )
     @NotNull
     @PluginProperty(group = "main")
@@ -199,7 +198,10 @@ public class HybridQuery extends QdrantConnection implements RunnableTask<FetchO
 
     @Schema(
         title = "Candidate limit per branch",
-        description = "Maximum number of candidates each prefetch branch returns to the fusion step (default: 50, min: 1, max: 10000). Must be greater than or equal to 'limit'. Overridden per branch by 'denseCandidateLimit' and 'sparseCandidateLimit'."
+        description = """
+            Maximum number of candidates each prefetch branch returns to the fusion step (default: 50, min: 1, \
+            max: 10000). Must be greater than or equal to 'limit'. Overridden per branch by \
+            'denseCandidateLimit' and 'sparseCandidateLimit'."""
     )
     @Builder.Default
     @PluginProperty(group = "processing")
@@ -207,21 +209,26 @@ public class HybridQuery extends QdrantConnection implements RunnableTask<FetchO
 
     @Schema(
         title = "Candidate limit of the dense branch",
-        description = "Overrides 'candidateLimit' for the dense prefetch branch only (min: 1, max: 10000). Must be greater than or equal to 'limit'."
+        description = """
+            Overrides 'candidateLimit' for the dense prefetch branch only (min: 1, max: 10000). Must be greater \
+            than or equal to 'limit'."""
     )
     @PluginProperty(group = "processing")
     private Property<Integer> denseCandidateLimit;
 
     @Schema(
         title = "Candidate limit of the sparse branch",
-        description = "Overrides 'candidateLimit' for the sparse prefetch branch only (min: 1, max: 10000). Must be greater than or equal to 'limit'."
+        description = """
+            Overrides 'candidateLimit' for the sparse prefetch branch only (min: 1, max: 10000). Must be greater \
+            than or equal to 'limit'."""
     )
     @PluginProperty(group = "processing")
     private Property<Integer> sparseCandidateLimit;
 
     @Schema(
         title = "Limit fused results",
-        description = "Maximum number of points returned after fusion (default: 10, min: 1, max: 1000)."
+        description = """
+            Maximum number of points returned after fusion (default: 10, min: 1, max: 1000)."""
     )
     @Builder.Default
     @PluginProperty(group = "processing")
@@ -229,14 +236,17 @@ public class HybridQuery extends QdrantConnection implements RunnableTask<FetchO
 
     @Schema(
         title = "Filter criteria",
-        description = "Filter map applied to both prefetch branches and to the fused result, so a point excluded by the filter cannot enter either candidate list. Accepts the same filter shapes as the 'Query' task."
+        description = """
+            Filter map applied to both prefetch branches and to the fused result, so a point excluded by the \
+            filter cannot enter either candidate list. Accepts the same filter shapes as the 'Query' task."""
     )
     @PluginProperty(group = "processing")
     private Property<Map<String, Object>> filter;
 
     @Schema(
         title = "Include payload",
-        description = "Whether to include point payload metadata in the result (default: true)."
+        description = """
+            Whether to include point payload metadata in the result (default: true)."""
     )
     @Builder.Default
     @PluginProperty(group = "processing")
@@ -244,7 +254,8 @@ public class HybridQuery extends QdrantConnection implements RunnableTask<FetchO
 
     @Schema(
         title = "Include vectors",
-        description = "Whether to include vector embeddings in the result (default: false)."
+        description = """
+            Whether to include vector embeddings in the result (default: false)."""
     )
     @Builder.Default
     @PluginProperty(group = "processing")
@@ -252,14 +263,20 @@ public class HybridQuery extends QdrantConnection implements RunnableTask<FetchO
 
     @Schema(
         title = "Query timeout",
-        description = "Optional server-side and client-side bound for the hybrid query, truncated to whole seconds (min: 1 second). Unset means the Qdrant instance applies its own global timeout."
+        description = """
+            Server-side and client-side bound for the hybrid query, truncated to whole seconds (default: PT30S, \
+            min: 1 second). The same value is sent as the Qdrant request timeout and used as the gRPC call \
+            deadline."""
     )
+    @Builder.Default
     @PluginProperty(group = "processing")
-    private Property<Duration> queryTimeout;
+    private Property<Duration> queryTimeout = Property.ofValue(DEFAULT_QUERY_TIMEOUT);
 
     @Schema(
         title = "Select fetch behavior",
-        description = "Output mode for query results: FETCH returns all rows inline, FETCH_ONE returns the first row, and STORE writes all rows to Kestra storage as an ION file and returns the URI (default: STORE)."
+        description = """
+            Output mode for query results: FETCH returns all rows inline, FETCH_ONE returns the first row, and \
+            STORE writes all rows to Kestra storage as an ION file and returns the URI (default: STORE)."""
     )
     @Builder.Default
     @NotNull
@@ -275,13 +292,13 @@ public class HybridQuery extends QdrantConnection implements RunnableTask<FetchO
         var rSparseVectorName = runContext.render(this.sparseVectorName).as(String.class)
             .orElseThrow(() -> new IllegalArgumentException("'sparseVectorName' is required"));
 
-        List<Float> rDenseVector = toFiniteFloats(renderList(runContext, this.denseVector, "denseVector"), "denseVector");
+        var rDenseVector = toFiniteFloats(renderList(runContext, this.denseVector, "denseVector"), "denseVector");
         if (rDenseVector.isEmpty()) {
             throw new IllegalArgumentException("'denseVector' must contain at least one dimension");
         }
 
-        List<Integer> rSparseIndices = toSparseIndices(renderList(runContext, this.sparseIndices, "sparseIndices"));
-        List<Float> rSparseValues = toFiniteFloats(renderList(runContext, this.sparseValues, "sparseValues"), "sparseValues");
+        var rSparseIndices = toSparseIndices(renderList(runContext, this.sparseIndices, "sparseIndices"));
+        var rSparseValues = toFiniteFloats(renderList(runContext, this.sparseValues, "sparseValues"), "sparseValues");
         if (rSparseIndices.isEmpty()) {
             throw new IllegalArgumentException("'sparseIndices' and 'sparseValues' must contain at least one entry");
         }
@@ -292,14 +309,10 @@ public class HybridQuery extends QdrantConnection implements RunnableTask<FetchO
             );
         }
 
-        int rLimit = renderBoundedLimit(runContext, this.limit, "limit", DEFAULT_LIMIT, MAX_LIMIT);
-        int rCandidateLimit = renderBoundedLimit(runContext, this.candidateLimit, "candidateLimit", DEFAULT_CANDIDATE_LIMIT, MAX_CANDIDATE_LIMIT);
-        int rDenseCandidateLimit = this.denseCandidateLimit == null
-            ? rCandidateLimit
-            : renderBoundedLimit(runContext, this.denseCandidateLimit, "denseCandidateLimit", rCandidateLimit, MAX_CANDIDATE_LIMIT);
-        int rSparseCandidateLimit = this.sparseCandidateLimit == null
-            ? rCandidateLimit
-            : renderBoundedLimit(runContext, this.sparseCandidateLimit, "sparseCandidateLimit", rCandidateLimit, MAX_CANDIDATE_LIMIT);
+        var rLimit = renderBoundedLimit(runContext, this.limit, "limit", DEFAULT_LIMIT, MAX_LIMIT);
+        var rCandidateLimit = renderBoundedLimit(runContext, this.candidateLimit, "candidateLimit", DEFAULT_CANDIDATE_LIMIT, MAX_CANDIDATE_LIMIT);
+        var rDenseCandidateLimit = renderBoundedLimit(runContext, this.denseCandidateLimit, "denseCandidateLimit", rCandidateLimit, MAX_CANDIDATE_LIMIT);
+        var rSparseCandidateLimit = renderBoundedLimit(runContext, this.sparseCandidateLimit, "sparseCandidateLimit", rCandidateLimit, MAX_CANDIDATE_LIMIT);
 
         requireCandidateBudget("candidateLimit", rCandidateLimit, rLimit);
         requireCandidateBudget("denseCandidateLimit", rDenseCandidateLimit, rLimit);
@@ -307,69 +320,61 @@ public class HybridQuery extends QdrantConnection implements RunnableTask<FetchO
 
         var rWithPayload = runContext.render(this.withPayload).as(Boolean.class).orElse(true);
         var rWithVectors = runContext.render(this.withVectors).as(Boolean.class).orElse(false);
-        FetchType rFetchType = runContext.render(this.fetchType).as(FetchType.class).orElse(FetchType.STORE);
+        var rFetchType = runContext.render(this.fetchType).as(FetchType.class).orElse(FetchType.STORE);
 
-        Duration rQueryTimeout = runContext.render(this.queryTimeout).as(Duration.class).orElse(null);
-        Long rTimeoutSeconds = null;
-        if (rQueryTimeout != null) {
-            rTimeoutSeconds = rQueryTimeout.toSeconds();
-            if (rTimeoutSeconds < 1) {
-                throw new IllegalArgumentException("'queryTimeout' must be at least 1 second, got: " + rQueryTimeout);
-            }
+        var rQueryTimeout = runContext.render(this.queryTimeout).as(Duration.class).orElse(DEFAULT_QUERY_TIMEOUT);
+        var rTimeoutSeconds = rQueryTimeout.toSeconds();
+        if (rTimeoutSeconds < 1) {
+            throw new IllegalArgumentException("'queryTimeout' must be at least 1 second, got: " + rQueryTimeout);
         }
 
         Common.Filter rFilter = null;
         if (this.filter != null) {
-            Map<String, Object> renderedFilter = runContext.render(this.filter).asMap(String.class, Object.class);
-            rFilter = toFilter(renderedFilter);
+            var rFilterMap = runContext.render(this.filter).asMap(String.class, Object.class);
+            rFilter = toFilter(rFilterMap);
         }
 
-        Points.PrefetchQuery densePrefetch = prefetch(
+        var densePrefetch = prefetch(
             QueryFactory.nearest(rDenseVector),
             rDenseVectorName,
             rDenseCandidateLimit,
             rFilter
         );
-        Points.PrefetchQuery sparsePrefetch = prefetch(
+        var sparsePrefetch = prefetch(
             QueryFactory.nearest(rSparseValues, rSparseIndices),
             rSparseVectorName,
             rSparseCandidateLimit,
             rFilter
         );
 
-        Points.QueryPoints.Builder queryBuilder = Points.QueryPoints.newBuilder()
+        var queryBuilder = Points.QueryPoints.newBuilder()
             .setCollectionName(rCollectionName)
             .addPrefetch(densePrefetch)
             .addPrefetch(sparsePrefetch)
             .setQuery(QueryFactory.fusion(Points.Fusion.RRF))
             .setLimit(rLimit)
+            .setTimeout(rTimeoutSeconds)
             .setWithPayload(WithPayloadSelectorFactory.enable(rWithPayload))
             .setWithVectors(WithVectorsSelectorFactory.enable(rWithVectors));
 
         if (rFilter != null) {
             queryBuilder.setFilter(rFilter);
         }
-        if (rTimeoutSeconds != null) {
-            queryBuilder.setTimeout(rTimeoutSeconds);
-        }
 
         try (var client = buildClient(runContext)) {
             runContext.logger().info(
-                "Hybrid querying collection '{}' with dense branch '{}' (candidates={}), sparse branch '{}' (candidates={}), RRF fusion and limit={}",
-                rCollectionName, rDenseVectorName, rDenseCandidateLimit, rSparseVectorName, rSparseCandidateLimit, rLimit
+                "Hybrid querying collection '{}' with dense branch '{}' (candidates={}), sparse branch '{}' (candidates={}), RRF fusion, limit={} and timeout={}",
+                rCollectionName, rDenseVectorName, rDenseCandidateLimit, rSparseVectorName, rSparseCandidateLimit, rLimit, rQueryTimeout
             );
 
-            Points.QueryPoints query = queryBuilder.build();
-            List<Points.ScoredPoint> results = rQueryTimeout == null
-                ? client.queryAsync(query).get()
-                : client.queryAsync(query, rQueryTimeout).get();
+            var results = client.queryAsync(queryBuilder.build(), rQueryTimeout).get();
 
             return buildFetchOutput(runContext, rFetchType, results, HybridQuery::mapScoredPoint);
         }
     }
 
     private static Points.PrefetchQuery prefetch(Points.Query query, String using, int candidateLimit, Common.Filter filter) {
-        Points.PrefetchQuery.Builder builder = Points.PrefetchQuery.newBuilder()
+        var builder = Points.PrefetchQuery.newBuilder()
             .setQuery(query)
             .setUsing(using)
             .setLimit(candidateLimit);
@@ -379,44 +384,27 @@ public class HybridQuery extends QdrantConnection implements RunnableTask<FetchO
         return builder.build();
     }
 
-    private static Map<String, Object> mapScoredPoint(Points.ScoredPoint scoredPoint) {
-        Map<String, Object> map = new LinkedHashMap<>();
-        map.put("id", fromPointId(scoredPoint.getId()));
-        map.put("score", scoredPoint.getScore());
-        map.put("version", scoredPoint.getVersion());
-        if (scoredPoint.getPayloadCount() > 0) {
-            map.put("payload", fromPayloadMap(scoredPoint.getPayloadMap()));
-        }
-        if (scoredPoint.hasVectors()) {
-            Object vectorObj = fromVectorsOutput(scoredPoint.getVectors());
-            if (vectorObj != null) {
-                map.put("vector", vectorObj);
-            }
-        }
-        return map;
-    }
-
     private static List<Object> renderList(RunContext runContext, Property<List<Object>> property, String name)
         throws IllegalVariableEvaluationException {
         if (property == null) {
             throw new IllegalArgumentException("'" + name + "' is required");
         }
-        List<Object> rendered = runContext.render(property).asList(Object.class);
-        if (rendered == null) {
+        var rList = runContext.render(property).asList(Object.class);
+        if (rList == null) {
             throw new IllegalArgumentException("'" + name + "' is required");
         }
-        return rendered;
+        return rList;
     }
 
     private static List<Float> toFiniteFloats(List<Object> values, String name) {
-        List<Float> result = new ArrayList<>(values.size());
-        for (Object value : values) {
+        var result = new ArrayList<Float>(values.size());
+        for (var value : values) {
             if (!(value instanceof Number number)) {
                 throw new IllegalArgumentException(
                     "'" + name + "' must be a list of numbers, got element: " + value
                 );
             }
-            float asFloat = number.floatValue();
+            var asFloat = number.floatValue();
             if (Float.isNaN(asFloat) || Float.isInfinite(asFloat)) {
                 throw new IllegalArgumentException(
                     "'" + name + "' must contain finite numbers only, got element: " + number
@@ -428,15 +416,15 @@ public class HybridQuery extends QdrantConnection implements RunnableTask<FetchO
     }
 
     private static List<Integer> toSparseIndices(List<Object> values) {
-        List<Integer> result = new ArrayList<>(values.size());
-        Set<Integer> seen = new LinkedHashSet<>();
-        for (Object value : values) {
+        var result = new ArrayList<Integer>(values.size());
+        var seen = new LinkedHashSet<Integer>();
+        for (var value : values) {
             if (!(value instanceof Number number)) {
                 throw new IllegalArgumentException(
                     "'sparseIndices' must be a list of numbers, got element: " + value
                 );
             }
-            double asDouble = number.doubleValue();
+            var asDouble = number.doubleValue();
             if (Double.isNaN(asDouble) || Double.isInfinite(asDouble)) {
                 throw new IllegalArgumentException(
                     "'sparseIndices' must contain finite numbers only, got element: " + number
@@ -457,7 +445,7 @@ public class HybridQuery extends QdrantConnection implements RunnableTask<FetchO
                     "'sparseIndices' must contain indices lower than or equal to " + Integer.MAX_VALUE + ", got element: " + number
                 );
             }
-            int index = (int) asDouble;
+            var index = (int) asDouble;
             if (!seen.add(index)) {
                 throw new IllegalArgumentException(
                     "'sparseIndices' must not contain duplicate indices, got index twice: " + index
@@ -470,12 +458,12 @@ public class HybridQuery extends QdrantConnection implements RunnableTask<FetchO
 
     private static int renderBoundedLimit(RunContext runContext, Property<Integer> property, String name, int defaultValue, int max)
         throws IllegalVariableEvaluationException {
-        Integer rendered = property == null ? null : runContext.render(property).as(Integer.class).orElse(null);
-        if (rendered == null) {
+        if (property == null) {
             return defaultValue;
         }
-        validateRange(name, rendered, 1, max);
-        return rendered;
+        var rLimit = runContext.render(property).as(Integer.class).orElse(defaultValue);
+        validateRange(name, rLimit, 1, max);
+        return rLimit;
     }
 
     private static void requireCandidateBudget(String name, int candidateLimit, int limit) {
