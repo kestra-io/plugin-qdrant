@@ -35,7 +35,7 @@ import java.util.Map;
 @Getter
 @NoArgsConstructor
 @Schema(
-    title = "Query a Qdrant collection with dense and sparse vectors fused by RRF",
+    title = "Query a Qdrant collection with dense and sparse vectors fused by RRF or DBSF",
     description = """
         Runs one server-side hybrid query against a collection that holds both a named dense vector space and a named sparse vector space.
 
@@ -310,7 +310,7 @@ import java.util.Map;
                   - id: compare
                     type: io.kestra.plugin.core.log.Log
                     message: |
-                      dense-only ids: {{ outputs.dense_only.rows | jq('[.[].id]') }}
+                      dense-only ids: {{ outputs.dense_only.rows | jq('[.[].id]') | first }}
                       fused ranking stored at: {{ outputs.hybrid.uri }}
                 """
         )
