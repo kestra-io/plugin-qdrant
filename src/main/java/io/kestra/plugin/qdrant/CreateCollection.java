@@ -72,7 +72,7 @@ import java.util.Map;
                     tlsEnabled: true
                     collectionName: docs
                     vectorName: text_dense
-                    vectorSize: 1536
+                    vectorSize: 4
                     distance: COSINE
                     sparseVectors:
                       - name: text_sparse
@@ -256,12 +256,15 @@ public class CreateCollection extends QdrantConnection implements RunnableTask<C
 
     @Builder
     @Getter
+    @ToString
+    @EqualsAndHashCode
     @NoArgsConstructor
     @AllArgsConstructor
     public static class SparseVectorSpace {
         @Schema(
             title = "Sparse vector name",
-            description = "Name of the sparse vector space, unique in the collection and different from the dense vector name."
+            description = """
+                Name of the sparse vector space, unique in the collection and different from the dense vector name."""
         )
         @NotNull
         private Property<String> name;

@@ -1,10 +1,16 @@
 package io.kestra.plugin.qdrant;
 
+import io.kestra.core.models.annotations.Plugin;
+import io.kestra.core.models.flows.Flow;
 import io.kestra.core.models.property.Property;
+import io.kestra.core.models.tasks.Task;
 import io.kestra.core.models.tasks.common.FetchType;
+import io.kestra.core.serializers.YamlParser;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
+import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -66,6 +72,43 @@ public class HybridIngestionTest extends QdrantTest {
 
         var ids = fused.getRows().stream().map(row -> ((Map<?, ?>) row).get("id")).toList();
         assertThat(ids, is(List.<Object>of(1L, 3L, 4L, 2L)));
+    }
+
+    @Test
+    void theDocumentedCreateAndUpsertExamplesChain() throws Exception {
+        if (!isQdrantAvailable()) return;
+        var runContext = runContextFactory.of();
+
+        // the two examples are meant to be run one after the other on the same collection
+        var create = (CreateCollection) taskOf(CreateCollection.class, "qdrant_create_hybrid_collection");
+        var upsert = (Upsert) taskOf(Upsert.class, "qdrant_upsert_hybrid");
+
+        assertThat(create.run(runContext).getSuccess(), is(true));
+        assertThat(upsert.run(runContext).getUpsertedCount(), is(1L));
+    }
+
+    // takes the task of a documented example, pointed at the test Qdrant and the collection of this test
+    private Task taskOf(Class<? extends Task> type, String flowId) {
+        var example = Arrays.stream(type.getAnnotation(Plugin.class).examples())
+            .map(annotation -> String.join("\n", annotation.code()))
+            .filter(code -> code.contains("id: " + flowId))
+            .findFirst()
+            .orElseThrow();
+
+        var lines = new ArrayList<String>();
+        for (var line : example.split("\n")) {
+            var trimmed = line.trim();
+            var indent = line.substring(0, line.length() - line.stripLeading().length());
+            if (trimmed.startsWith("host: ")) {
+                lines.add(indent + "host: " + host);
+                lines.add(indent + "port: " + port);
+            } else if (trimmed.startsWith("collectionName: ")) {
+                lines.add(indent + "collectionName: " + collectionName);
+            } else if (!trimmed.startsWith("apiKey: ") && !trimmed.startsWith("tlsEnabled: ")) {
+                lines.add(line);
+            }
+        }
+        return YamlParser.parse(String.join("\n", lines), Flow.class).getTasks().getFirst();
     }
 
     private static Map<String, Object> point(int id, List<Float> dense, List<Integer> indices, List<Float> values) {

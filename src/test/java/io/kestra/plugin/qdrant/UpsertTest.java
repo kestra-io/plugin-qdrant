@@ -2,13 +2,12 @@ package io.kestra.plugin.qdrant;
 
 import io.kestra.core.models.property.Property;
 import io.kestra.core.runners.RunContext;
-import io.qdrant.client.grpc.Collections;
 import io.kestra.core.serializers.FileSerde;
+import io.qdrant.client.PointIdFactory;
+import io.qdrant.client.grpc.Collections;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-
-import io.qdrant.client.PointIdFactory;
 
 import java.io.File;
 import java.io.FileOutputStream;

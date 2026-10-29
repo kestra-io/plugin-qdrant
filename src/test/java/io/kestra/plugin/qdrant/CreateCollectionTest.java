@@ -1,8 +1,8 @@
 package io.kestra.plugin.qdrant;
 
+import io.kestra.core.models.flows.Flow;
 import io.kestra.core.models.property.Property;
-import io.kestra.core.models.validations.ModelValidator;
-import jakarta.inject.Inject;
+import io.kestra.core.serializers.YamlParser;
 import io.qdrant.client.grpc.Collections;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
@@ -17,9 +17,6 @@ import static org.hamcrest.Matchers.notNullValue;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 public class CreateCollectionTest extends QdrantTest {
-
-    @Inject
-    private ModelValidator modelValidator;
 
     @Test
     void run() throws Exception {
@@ -159,21 +156,47 @@ public class CreateCollectionTest extends QdrantTest {
     }
 
     @Test
-    void aNegativeFullScanThresholdIsRejectedByFlowValidation() {
-        var invalid = base().id("create").type(CreateCollection.class.getName())
-            .sparseVectors(List.of(
-                CreateCollection.SparseVectorSpace.builder().name(Property.ofValue("s")).fullScanThreshold(Property.ofValue(-1)).build()
-            ))
-            .build();
-        var valid = base().id("create").type(CreateCollection.class.getName())
-            .sparseVectors(List.of(
-                CreateCollection.SparseVectorSpace.builder().name(Property.ofValue("s")).fullScanThreshold(Property.ofValue(0)).build()
-            ))
-            .build();
+    void aNegativeFullScanThresholdFromFlowYamlIsRejectedAtRunTime() throws Exception {
+        // a YAML literal is not bounded by the annotation at validation time, so the run time check is what protects a flow
+        var task = (CreateCollection) YamlParser.parse(flowYaml("""
+            sparseVectors:
+              - name: s
+                fullScanThreshold: -1
+            """), Flow.class).getTasks().getFirst();
 
-        // rejected at validation time, before any execution
-        assertThat(modelValidator.isValid(invalid).isPresent(), is(true));
-        assertThat(modelValidator.isValid(valid).isPresent(), is(false));
+        var failure = assertThrows(IllegalArgumentException.class, () -> task.run(runContextFactory.of()));
+        assertThat(failure.getMessage(), containsString("sparseVectors[s].fullScanThreshold' must be between 0"));
+    }
+
+    @Test
+    void identicalSparseVectorDeclarationsAreEqual() {
+        var yaml = flowYaml("""
+            sparseVectors:
+              - name: s
+                memory: COLD
+                fullScanThreshold: 10
+            """);
+
+        var first = ((CreateCollection) YamlParser.parse(yaml, Flow.class).getTasks().getFirst()).getSparseVectors().getFirst();
+        var second = ((CreateCollection) YamlParser.parse(yaml, Flow.class).getTasks().getFirst()).getSparseVectors().getFirst();
+
+        assertThat(first, is(second));
+        assertThat(first.hashCode(), is(second.hashCode()));
+        assertThat(first.toString(), containsString("name="));
+        assertThat(first.toString().contains("SparseVectorSpace@"), is(false));
+    }
+
+    private String flowYaml(String taskProperties) {
+        return """
+            id: f
+            namespace: n
+            tasks:
+              - id: create
+                type: io.kestra.plugin.qdrant.CreateCollection
+                host: localhost
+                collectionName: c
+                vectorSize: 4
+            """ + taskProperties.indent(4);
     }
 
     private CreateCollection.CreateCollectionBuilder<?, ?> base() {
