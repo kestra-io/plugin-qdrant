@@ -1,6 +1,7 @@
 package io.kestra.plugin.qdrant;
 
 import io.kestra.core.models.property.Property;
+import io.kestra.core.runners.RunContext;
 import io.qdrant.client.grpc.Collections;
 import io.kestra.core.serializers.FileSerde;
 import org.junit.jupiter.api.AfterEach;
@@ -165,7 +166,7 @@ public class UpsertTest extends QdrantTest {
         assertRejected(runContext, Map.of("indices", List.of(1), "values", List.of(0.5f), "extra", 1), "unknown field 'extra'");
     }
 
-    private void assertRejected(io.kestra.core.runners.RunContext runContext, Map<String, Object> sparse, String expected) {
+    private void assertRejected(RunContext runContext, Map<String, Object> sparse, String expected) {
         var task = Upsert.builder()
             .host(Property.ofValue(host))
             .port(Property.ofValue(port))

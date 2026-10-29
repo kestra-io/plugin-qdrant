@@ -5,6 +5,7 @@ import io.kestra.core.models.tasks.common.FetchType;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -68,7 +69,7 @@ public class HybridIngestionTest extends QdrantTest {
     }
 
     private static Map<String, Object> point(int id, List<Float> dense, List<Integer> indices, List<Float> values) {
-        var vectors = new java.util.LinkedHashMap<String, Object>();
+        var vectors = new LinkedHashMap<String, Object>();
         vectors.put("text_dense", dense);
         if (indices != null) {
             vectors.put("text_sparse", Map.of("indices", indices, "values", values));

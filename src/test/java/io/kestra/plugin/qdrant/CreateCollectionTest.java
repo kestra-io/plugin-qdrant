@@ -1,11 +1,14 @@
 package io.kestra.plugin.qdrant;
 
 import io.kestra.core.models.property.Property;
+import io.kestra.core.models.validations.ModelValidator;
+import jakarta.inject.Inject;
 import io.qdrant.client.grpc.Collections;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
+import java.util.Set;
 
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.containsString;
@@ -14,6 +17,9 @@ import static org.hamcrest.Matchers.notNullValue;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 public class CreateCollectionTest extends QdrantTest {
+
+    @Inject
+    private ModelValidator modelValidator;
 
     @Test
     void run() throws Exception {
@@ -45,7 +51,7 @@ public class CreateCollectionTest extends QdrantTest {
                 CreateCollection.SparseVectorSpace.builder()
                     .name(Property.ofValue("text_sparse"))
                     .modifier(Property.ofValue(SparseModifier.IDF))
-                    .onDisk(Property.ofValue(true))
+                    .memory(Property.ofValue(PayloadMemory.CACHED))
                     .fullScanThreshold(Property.ofValue(1000))
                     .build(),
                 CreateCollection.SparseVectorSpace.builder()
@@ -66,12 +72,12 @@ public class CreateCollectionTest extends QdrantTest {
             assertThat(params.getVectorsConfig().hasParams(), is(false));
 
             var sparse = params.getSparseVectorsConfig().getMapMap();
-            assertThat(sparse.keySet(), is(java.util.Set.of("text_sparse", "keywords")));
+            assertThat(sparse.keySet(), is(Set.of("text_sparse", "keywords")));
             assertThat(sparse.get("text_sparse").getModifier(), is(Collections.Modifier.Idf));
-            assertThat(sparse.get("text_sparse").getIndex().getOnDisk(), is(true));
+            assertThat(sparse.get("text_sparse").getIndex().getMemory(), is(Collections.Memory.Cached));
             assertThat(sparse.get("text_sparse").getIndex().getFullScanThreshold(), is(1000L));
             assertThat(sparse.get("keywords").getModifier(), is(Collections.Modifier.None));
-            assertThat(sparse.get("keywords").getIndex().getOnDisk(), is(false));
+            assertThat(sparse.get("keywords").getIndex().hasMemory(), is(false));
         }
     }
 
@@ -89,7 +95,7 @@ public class CreateCollectionTest extends QdrantTest {
             var params = client.getCollectionInfoAsync(collectionName).get().getConfig().getParams();
 
             assertThat(params.getVectorsConfig().hasParams(), is(true));
-            assertThat(params.getSparseVectorsConfig().getMapMap().keySet(), is(java.util.Set.of("text_sparse")));
+            assertThat(params.getSparseVectorsConfig().getMapMap().keySet(), is(Set.of("text_sparse")));
         }
     }
 
@@ -150,6 +156,24 @@ public class CreateCollectionTest extends QdrantTest {
             assertThrows(IllegalArgumentException.class, () -> negativeThreshold.run(runContext)).getMessage(),
             containsString("fullScanThreshold' must be between 0")
         );
+    }
+
+    @Test
+    void aNegativeFullScanThresholdIsRejectedByFlowValidation() {
+        var invalid = base().id("create").type(CreateCollection.class.getName())
+            .sparseVectors(List.of(
+                CreateCollection.SparseVectorSpace.builder().name(Property.ofValue("s")).fullScanThreshold(Property.ofValue(-1)).build()
+            ))
+            .build();
+        var valid = base().id("create").type(CreateCollection.class.getName())
+            .sparseVectors(List.of(
+                CreateCollection.SparseVectorSpace.builder().name(Property.ofValue("s")).fullScanThreshold(Property.ofValue(0)).build()
+            ))
+            .build();
+
+        // rejected at validation time, before any execution
+        assertThat(modelValidator.isValid(invalid).isPresent(), is(true));
+        assertThat(modelValidator.isValid(valid).isPresent(), is(false));
     }
 
     private CreateCollection.CreateCollectionBuilder<?, ?> base() {

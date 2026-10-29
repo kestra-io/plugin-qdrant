@@ -8,6 +8,8 @@ import io.kestra.core.models.tasks.RunnableTask;
 import io.kestra.core.runners.RunContext;
 import io.qdrant.client.grpc.Collections;
 import io.swagger.v3.oas.annotations.media.Schema;
+import jakarta.validation.Valid;
+import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotNull;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -122,7 +124,7 @@ public class CreateCollection extends QdrantConnection implements RunnableTask<C
             from `vectorName`. Points get their sparse vectors later through `Upsert`."""
     )
     @PluginProperty(group = "main")
-    private List<SparseVectorSpace> sparseVectors;
+    private List<@Valid SparseVectorSpace> sparseVectors;
 
     @Schema(
         title = "Payload memory storage policy",
@@ -232,8 +234,11 @@ public class CreateCollection extends QdrantConnection implements RunnableTask<C
                 throw new IllegalArgumentException("sparse vector '" + rName + "' is declared twice, names must be unique");
             }
 
-            var index = Collections.SparseIndexConfig.newBuilder()
-                .setOnDisk(runContext.render(space.getOnDisk()).as(Boolean.class).orElse(false));
+            var index = Collections.SparseIndexConfig.newBuilder();
+            var rMemory = runContext.render(space.getMemory()).as(PayloadMemory.class).orElse(null);
+            if (rMemory != null) {
+                index.setMemory(rMemory.toGrpc());
+            }
             var rThreshold = runContext.render(space.getFullScanThreshold()).as(Integer.class).orElse(null);
             if (rThreshold != null) {
                 validateRange("sparseVectors[" + rName + "].fullScanThreshold", rThreshold, 0, Integer.MAX_VALUE);
@@ -262,23 +267,26 @@ public class CreateCollection extends QdrantConnection implements RunnableTask<C
         private Property<String> name;
 
         @Schema(
-            title = "Store the sparse index on disk",
-            description = "Whether to keep the sparse index on disk instead of in RAM (default: false)."
+            title = "Sparse index memory placement",
+            description = """
+                Where the sparse index lives: `COLD` (on disk, mmap), `CACHED` (on disk with an in-memory page cache) \
+                or `PINNED` (pinned in RAM). Unset keeps the server default."""
         )
-        @Builder.Default
-        private Property<Boolean> onDisk = Property.ofValue(false);
+        private Property<PayloadMemory> memory;
 
         @Schema(
             title = "Full scan threshold",
             description = """
-                Size in kilobytes under which Qdrant scans the segment instead of using the sparse index (min: 0). \
-                Unset keeps the Qdrant default."""
+                Number of vectors below which Qdrant prefers a full scan over the sparse index (min: 0). This is a \
+                count of vectors, not a size in kilobytes as for the dense HNSW index. Unset keeps the server default."""
         )
-        private Property<Integer> fullScanThreshold;
+        private Property<@Min(0) Integer> fullScanThreshold;
 
         @Schema(
             title = "Weight modifier",
-            description = "Use IDF to let Qdrant weight terms by inverse document frequency, as BM25 does (default: NONE)."
+            description = """
+                `NONE` (default) uses the stored weights as they are. `IDF` multiplies them by the inverse document \
+                frequency computed by Qdrant, as BM25 does."""
         )
         @Builder.Default
         private Property<SparseModifier> modifier = Property.ofValue(SparseModifier.NONE);
