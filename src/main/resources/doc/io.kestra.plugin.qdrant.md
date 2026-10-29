@@ -20,7 +20,7 @@ All tasks inherit common connection properties:
 - `Get`: Retrieves points by their IDs with options to include payloads and vector embeddings. Outputs results inline (`FETCH`), as a single record (`FETCH_ONE`), or to Kestra internal storage (`STORE`).
 - `Query`: Performs vector similarity searches using either a raw embedding vector (`vector`) or an existing point ID (`vectorId`). Supports target vector space (`vectorName`) for collections using named vectors, result count limits (`limit`, with `topK` supported as an alias; `limit` takes precedence), score thresholds, payload filters, and fetch output modes (`FETCH`, `FETCH_ONE`, `STORE`).
 - `SparseQuery`: Searches one named sparse vector space with a sparse query vector and returns the nearest points. It is the sparse-only counterpart of `Query`, used next to `Query` and `HybridQuery` to compare retrieval methods. See [Hybrid retrieval](#hybrid-retrieval).
-- `HybridQuery`: Queries one named dense vector space and one named sparse vector space in a single request and lets Qdrant fuse both candidate lists with Reciprocal Rank Fusion. See [Hybrid retrieval](#hybrid-retrieval).
+- `HybridQuery`: Queries one named dense vector space and one named sparse vector space in a single request and lets Qdrant fuse both candidate lists with Reciprocal Rank Fusion (default, with optional `rrfK` and per-branch weights) or Distribution-Based Score Fusion (`fusion: DBSF`). Supports `offset` pagination. See [Hybrid retrieval](#hybrid-retrieval).
 - `Delete`: Deletes points by specific point IDs or matching filter criteria (mutually exclusive).
 
 ## Hybrid retrieval
@@ -52,7 +52,7 @@ All tasks inherit common connection properties:
 - `fusion: RRF` (default) scores a point from its position in each branch. `rrfK` sets the rank constant (Qdrant defaults to `2`, and `61` reproduces the `1 / (rank + 60)` convention of the original RRF paper). A larger value flattens the gap between top ranks. `denseWeight` and `sparseWeight` are absolute weights, not ratios: `1` and `2` is a different setting from `2` and `4`. They must be set together.
 - `fusion: DBSF` normalizes the score distribution of each branch and sums the normalized scores, so it uses the score values and not only the ranks. It takes no tuning properties: combining it with `rrfK`, `denseWeight` or `sparseWeight` fails before any network call.
 - The returned `score` is the fusion score for either method, so scores of different methods, or of `Query`, are not comparable.
-- `rrfK` and the weights need Qdrant 1.17 or later. An older server answers with its own error. Plain `fusion: RRF` and `fusion: DBSF` work on every server that supports the Query API.
+- `rrfK` and the weights need Qdrant 1.17 or later. An older server answers with its own error. Plain `fusion: RRF` needs Qdrant 1.10 or later, where the Query API landed, and `fusion: DBSF` needs Qdrant 1.11 or later. `offset` works wherever the Query API does.
 
 ### Evaluating hybrid retrieval
 

@@ -13,6 +13,8 @@ import io.qdrant.client.WithPayloadSelectorFactory;
 import io.qdrant.client.WithVectorsSelectorFactory;
 import io.qdrant.client.grpc.Points;
 import io.swagger.v3.oas.annotations.media.Schema;
+import jakarta.validation.constraints.Max;
+import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotNull;
 import lombok.Builder;
 import lombok.EqualsAndHashCode;
@@ -114,7 +116,7 @@ public class SparseQuery extends QdrantConnection implements RunnableTask<FetchO
     )
     @Builder.Default
     @PluginProperty(group = "processing")
-    private Property<Integer> limit = Property.ofValue(DEFAULT_LIMIT);
+    private Property<@Min(1) @Max(1000) Integer> limit = Property.ofValue(DEFAULT_LIMIT);
 
     @Schema(
         title = "Filter criteria",

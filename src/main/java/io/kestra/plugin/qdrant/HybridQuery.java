@@ -15,6 +15,8 @@ import io.qdrant.client.WithVectorsSelectorFactory;
 import io.qdrant.client.grpc.Common;
 import io.qdrant.client.grpc.Points;
 import io.swagger.v3.oas.annotations.media.Schema;
+import jakarta.validation.constraints.Max;
+import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotNull;
 import lombok.Builder;
 import lombok.EqualsAndHashCode;
@@ -308,7 +310,7 @@ import java.util.Map;
                   - id: compare
                     type: io.kestra.plugin.core.log.Log
                     message: |
-                      dense-only ids: {{ outputs.dense_only[taskrun.value].rows | jq('[.[].id]') }}
+                      dense-only ids: {{ outputs.dense_only.rows | jq('[.[].id]') }}
                       fused ranking stored at: {{ outputs.hybrid.uri }}
                 """
         )
@@ -431,14 +433,14 @@ public class HybridQuery extends QdrantConnection implements RunnableTask<FetchO
     )
     @Builder.Default
     @PluginProperty(group = "processing")
-    private Property<Integer> offset = Property.ofValue(0);
+    private Property<@Min(0) @Max(10000) Integer> offset = Property.ofValue(0);
 
     @Schema(
         title = "Fusion method",
         description = """
             How the two candidate lists are merged: `RRF` (default) scores a point from its rank in each branch, \
-            `DBSF` normalizes each branch score distribution and sums the normalized scores. The returned `score` is \
-            the fusion score for either method."""
+            `DBSF` normalizes each branch score distribution and sums the normalized scores and needs Qdrant 1.11 or \
+            later. The returned `score` is the fusion score for either method."""
     )
     @Builder.Default
     @NotNull
@@ -454,7 +456,7 @@ public class HybridQuery extends QdrantConnection implements RunnableTask<FetchO
             the original RRF paper. Only valid with `fusion: RRF`, and needs Qdrant 1.17 or later."""
     )
     @PluginProperty(group = "advanced")
-    private Property<Integer> rrfK;
+    private Property<@Min(1) @Max(10000) Integer> rrfK;
 
     @Schema(
         title = "RRF weight of the dense branch",

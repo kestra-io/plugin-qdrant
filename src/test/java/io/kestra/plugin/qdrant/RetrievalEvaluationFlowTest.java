@@ -2,6 +2,7 @@ package io.kestra.plugin.qdrant;
 
 import io.kestra.core.junit.annotations.KestraTest;
 import io.kestra.core.models.annotations.Plugin;
+import io.kestra.core.models.property.Property;
 import io.kestra.core.models.executions.Execution;
 import io.kestra.core.models.flows.GenericFlow;
 import io.kestra.core.models.flows.State;
@@ -16,6 +17,7 @@ import org.junit.jupiter.api.Test;
 
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 
@@ -47,7 +49,7 @@ public class RetrievalEvaluationFlowTest extends QdrantTest {
         assertThat(execution.getState().getCurrent(), is(State.Type.SUCCESS));
 
         var summary = outputsOf(execution, "summary");
-        var queries = defaultQueries(flow);
+        var queries = defaultQueries();
 
         // independent expectation, computed with the SDK on a second collection that mirrors the corpus
         var expected = expectedHits(queries, 3);
@@ -89,21 +91,21 @@ public class RetrievalEvaluationFlowTest extends QdrantTest {
         var collection = collectionName + "_expected";
         try (var client = qdrantClient()) {
             CreateCollection.builder()
-                .host(io.kestra.core.models.property.Property.ofValue(host))
-                .port(io.kestra.core.models.property.Property.ofValue(port))
-                .collectionName(io.kestra.core.models.property.Property.ofValue(collection))
-                .vectorName(io.kestra.core.models.property.Property.ofValue("text_dense"))
-                .vectorSize(io.kestra.core.models.property.Property.ofValue(4))
-                .distance(io.kestra.core.models.property.Property.ofValue(Distance.COSINE))
+                .host(Property.ofValue(host))
+                .port(Property.ofValue(port))
+                .collectionName(Property.ofValue(collection))
+                .vectorName(Property.ofValue("text_dense"))
+                .vectorSize(Property.ofValue(4))
+                .distance(Property.ofValue(Distance.COSINE))
                 .sparseVectors(List.of(CreateCollection.SparseVectorSpace.builder()
-                    .name(io.kestra.core.models.property.Property.ofValue("text_sparse")).build()))
+                    .name(Property.ofValue("text_sparse")).build()))
                 .build()
                 .run(runContextFactory.of());
 
             Upsert.builder()
-                .host(io.kestra.core.models.property.Property.ofValue(host))
-                .port(io.kestra.core.models.property.Property.ofValue(port))
-                .collectionName(io.kestra.core.models.property.Property.ofValue(collection))
+                .host(Property.ofValue(host))
+                .port(Property.ofValue(port))
+                .collectionName(Property.ofValue(collection))
                 .points(corpus())
                 .build()
                 .run(runContextFactory.of());
@@ -145,7 +147,7 @@ public class RetrievalEvaluationFlowTest extends QdrantTest {
     }
 
     @SuppressWarnings("unchecked")
-    private List<Map<String, Object>> defaultQueries(io.kestra.core.models.flows.FlowInterface flow) throws Exception {
+    private List<Map<String, Object>> defaultQueries() throws Exception {
         var yaml = JacksonMapper.ofYaml().readValue(documentedFlow(), Map.class);
         var inputs = (List<Map<String, Object>>) yaml.get("inputs");
         var queries = inputs.stream().filter(input -> "queries".equals(input.get("id"))).findFirst().orElseThrow();
@@ -160,7 +162,7 @@ public class RetrievalEvaluationFlowTest extends QdrantTest {
 
     // swaps the secret based connection of the example for the test Qdrant, nothing else is touched
     private String documentedFlow() {
-        var example = java.util.Arrays.stream(HybridQuery.class.getAnnotation(Plugin.class).examples())
+        var example = Arrays.stream(HybridQuery.class.getAnnotation(Plugin.class).examples())
             .map(annotation -> String.join("\n", annotation.code()))
             .filter(code -> code.contains("id: " + FLOW_ID))
             .findFirst()
