@@ -595,6 +595,229 @@ public class HybridQueryTest extends QdrantTest {
     }
 
     @Test
+    void dbsfFusionMatchesDirectSdkQuery() throws Exception {
+        if (!isQdrantAvailable()) return;
+        var runContext = runContextFactory.of();
+
+        var output = task()
+            .limit(Property.ofValue(10))
+            .candidateLimit(Property.ofValue(10))
+            .fusion(Property.ofValue(FusionMethod.DBSF))
+            .fetchType(Property.ofValue(FetchType.FETCH))
+            .build()
+            .run(runContext);
+
+        var expected = fusedDirect(QueryFactory.fusion(Points.Fusion.DBSF), 10, 0, 10);
+
+        assertThat(rowIds(output.getRows()), is(pointIds(expected)));
+        assertThat(rowScores(output.getRows()), is(pointScores(expected)));
+        assertThat(output.getSize(), is(4L));
+    }
+
+    @Test
+    void dbsfScoresDifferFromRrfScores() throws Exception {
+        if (!isQdrantAvailable()) return;
+        var runContext = runContextFactory.of();
+
+        var rrf = task().limit(Property.ofValue(10)).candidateLimit(Property.ofValue(10))
+            .fetchType(Property.ofValue(FetchType.FETCH)).build().run(runContext);
+        var dbsf = task().limit(Property.ofValue(10)).candidateLimit(Property.ofValue(10))
+            .fusion(Property.ofValue(FusionMethod.DBSF)).fetchType(Property.ofValue(FetchType.FETCH)).build().run(runContext);
+
+        // the two methods score on different scales, so the option really reaches the server
+        assertThat(rowScores(dbsf.getRows()), is(not(rowScores(rrf.getRows()))));
+    }
+
+    @Test
+    void rrfKMatchesDirectSdkQueryAndChangesTheScores() throws Exception {
+        if (!isQdrantAvailable()) return;
+        var runContext = runContextFactory.of();
+
+        var tuned = task()
+            .limit(Property.ofValue(10))
+            .candidateLimit(Property.ofValue(10))
+            .rrfK(Property.ofValue(5))
+            .fetchType(Property.ofValue(FetchType.FETCH))
+            .build()
+            .run(runContext);
+        var defaults = task()
+            .limit(Property.ofValue(10))
+            .candidateLimit(Property.ofValue(10))
+            .fetchType(Property.ofValue(FetchType.FETCH))
+            .build()
+            .run(runContext);
+
+        var expected = fusedDirect(QueryFactory.rrf(Points.Rrf.newBuilder().setK(5).build()), 10, 0, 10);
+
+        assertThat(rowIds(tuned.getRows()), is(pointIds(expected)));
+        assertThat(rowScores(tuned.getRows()), is(pointScores(expected)));
+        assertThat(rowScores(tuned.getRows()), is(not(rowScores(defaults.getRows()))));
+    }
+
+    @Test
+    void rrfWeightsMatchDirectSdkQueryAndCanReorderTheResult() throws Exception {
+        if (!isQdrantAvailable()) return;
+        var runContext = runContextFactory.of();
+
+        // sparse-only ranking is 3, 4, 1: giving the sparse branch all the weight must pull point 3 to the top
+        var sparseHeavy = task()
+            .limit(Property.ofValue(10))
+            .candidateLimit(Property.ofValue(10))
+            .denseWeight(Property.ofValue(0.1f))
+            .sparseWeight(Property.ofValue(10f))
+            .fetchType(Property.ofValue(FetchType.FETCH))
+            .build()
+            .run(runContext);
+        var expected = fusedDirect(
+            QueryFactory.rrf(Points.Rrf.newBuilder().addWeights(0.1f).addWeights(10f).build()), 10, 0, 10
+        );
+
+        assertThat(rowIds(sparseHeavy.getRows()), is(pointIds(expected)));
+        assertThat(rowScores(sparseHeavy.getRows()), is(pointScores(expected)));
+        assertThat(rowIds(sparseHeavy.getRows()).getFirst(), is((Object) 3L));
+        // the default fusion ranks point 1 first
+        assertThat(rowIds(sparseHeavy.getRows()), is(not(List.<Object>of(1L, 3L, 4L, 2L))));
+    }
+
+    @Test
+    void offsetSkipsTheFirstFusedResults() throws Exception {
+        if (!isQdrantAvailable()) return;
+        var runContext = runContextFactory.of();
+
+        // a budget of exactly limit + offset matches the direct SDK query with the same budget
+        var tight = task()
+            .limit(Property.ofValue(2))
+            .offset(Property.ofValue(1))
+            .candidateLimit(Property.ofValue(3))
+            .fetchType(Property.ofValue(FetchType.FETCH))
+            .build()
+            .run(runContext);
+        var expected = fusedDirect(QueryFactory.fusion(Points.Fusion.RRF), 3, 1, 2);
+
+        assertThat(tight.getSize(), is(2L));
+        assertThat(rowIds(tight.getRows()), is(pointIds(expected)));
+        assertThat(rowScores(tight.getRows()), is(pointScores(expected)));
+
+        // with a wide budget, a page is a slice of the unpaged fused ranking
+        var all = task().limit(Property.ofValue(10)).candidateLimit(Property.ofValue(10))
+            .fetchType(Property.ofValue(FetchType.FETCH)).build().run(runContext);
+        var page = task()
+            .limit(Property.ofValue(2))
+            .offset(Property.ofValue(1))
+            .candidateLimit(Property.ofValue(10))
+            .fetchType(Property.ofValue(FetchType.FETCH))
+            .build()
+            .run(runContext);
+
+        assertThat(rowIds(page.getRows()), is(rowIds(all.getRows()).subList(1, 3)));
+    }
+
+    @Test
+    void candidateLimitBelowLimitPlusOffsetIsRejected() {
+        var runContext = runContextFactory.of();
+        var task = task()
+            .limit(Property.ofValue(5))
+            .offset(Property.ofValue(10))
+            .candidateLimit(Property.ofValue(12))
+            .build();
+
+        var failure = assertThrows(IllegalArgumentException.class, () -> task.run(runContext));
+        assertThat(failure.getMessage(), containsString("'candidateLimit' must be greater than or equal to 'limit' plus 'offset'"));
+        assertThat(failure.getMessage(), containsString("window of 15"));
+    }
+
+    @Test
+    void offsetOutOfRangeIsRejected() {
+        var runContext = runContextFactory.of();
+
+        for (int invalid : new int[] { -1, 10_001 }) {
+            var task = task().offset(Property.ofValue(invalid)).candidateLimit(Property.ofValue(10_000)).build();
+            var failure = assertThrows(IllegalArgumentException.class, () -> task.run(runContext));
+            assertThat(failure.getMessage(), containsString("'offset' must be between 0 and 10000"));
+        }
+    }
+
+    @Test
+    void rrfOptionsAreRejectedWithDbsf() {
+        var runContext = runContextFactory.of();
+
+        var withK = task().fusion(Property.ofValue(FusionMethod.DBSF)).rrfK(Property.ofValue(10)).build();
+        assertThat(
+            assertThrows(IllegalArgumentException.class, () -> withK.run(runContext)).getMessage(),
+            containsString("only apply to 'fusion: RRF'")
+        );
+
+        var withWeights = task().fusion(Property.ofValue(FusionMethod.DBSF))
+            .denseWeight(Property.ofValue(1f)).sparseWeight(Property.ofValue(2f)).build();
+        assertThat(
+            assertThrows(IllegalArgumentException.class, () -> withWeights.run(runContext)).getMessage(),
+            containsString("only apply to 'fusion: RRF'")
+        );
+    }
+
+    @Test
+    void weightsMustBeSetTogetherAndBeValid() {
+        var runContext = runContextFactory.of();
+
+        var onlyDense = task().denseWeight(Property.ofValue(2f)).build();
+        assertThat(
+            assertThrows(IllegalArgumentException.class, () -> onlyDense.run(runContext)).getMessage(),
+            containsString("must be set together")
+        );
+
+        var onlySparse = task().sparseWeight(Property.ofValue(2f)).build();
+        assertThat(
+            assertThrows(IllegalArgumentException.class, () -> onlySparse.run(runContext)).getMessage(),
+            containsString("must be set together")
+        );
+
+        for (float invalid : new float[] { -1f, 1001f, Float.NaN, Float.POSITIVE_INFINITY }) {
+            var task = task().denseWeight(Property.ofValue(invalid)).sparseWeight(Property.ofValue(1f)).build();
+            var failure = assertThrows(IllegalArgumentException.class, () -> task.run(runContext));
+            assertThat(failure.getMessage(), containsString("'denseWeight' must be a finite number between 0 and 1000"));
+        }
+    }
+
+    @Test
+    void rrfKOutOfRangeIsRejected() {
+        var runContext = runContextFactory.of();
+
+        for (int invalid : new int[] { 0, -3, 10_001 }) {
+            var task = task().rrfK(Property.ofValue(invalid)).build();
+            var failure = assertThrows(IllegalArgumentException.class, () -> task.run(runContext));
+            assertThat(failure.getMessage(), containsString("'rrfK' must be between 1 and 10000"));
+        }
+    }
+
+    @Test
+    void fusionAndTuningAreRenderedAtRuntime() throws Exception {
+        if (!isQdrantAvailable()) return;
+        var runContext = runContextFactory.of(Map.of("method", "DBSF", "page", 1, "k", 7));
+
+        var dbsf = task()
+            .fusion(Property.ofExpression("{{ method }}"))
+            .offset(Property.ofExpression("{{ page }}"))
+            .limit(Property.ofValue(2))
+            .candidateLimit(Property.ofValue(10))
+            .fetchType(Property.ofValue(FetchType.FETCH))
+            .build()
+            .run(runContext);
+        assertThat(rowIds(dbsf.getRows()), is(pointIds(fusedDirect(QueryFactory.fusion(Points.Fusion.DBSF), 10, 1, 2))));
+
+        var rrf = task()
+            .rrfK(Property.ofExpression("{{ k }}"))
+            .limit(Property.ofValue(10))
+            .candidateLimit(Property.ofValue(10))
+            .fetchType(Property.ofValue(FetchType.FETCH))
+            .build()
+            .run(runContext);
+        assertThat(
+            rowScores(rrf.getRows()),
+            is(pointScores(fusedDirect(QueryFactory.rrf(Points.Rrf.newBuilder().setK(7).build()), 10, 0, 10)))
+        );
+    }
+
+    @Test
     void subSecondQueryTimeoutIsRejected() {
         var runContext = runContextFactory.of();
         var task = task().queryTimeout(Property.ofValue(Duration.ofMillis(500))).build();
@@ -630,6 +853,23 @@ public class HybridQueryTest extends QdrantTest {
             .sparseVectorName(Property.ofValue(SPARSE_VECTOR))
             .sparseIndices(Property.ofValue(List.<Object>copyOf(SPARSE_QUERY_INDICES)))
             .sparseValues(Property.ofValue(List.<Object>copyOf(SPARSE_QUERY_VALUES)));
+    }
+
+    private List<Points.ScoredPoint> fusedDirect(Points.Query fusion, int candidateLimit, int offset, int limit) throws Exception {
+        try (var client = qdrantClient()) {
+            return client.queryAsync(
+                Points.QueryPoints.newBuilder()
+                    .setCollectionName(collectionName)
+                    .addPrefetch(densePrefetch(candidateLimit, null))
+                    .addPrefetch(sparsePrefetch(candidateLimit, null))
+                    .setQuery(fusion)
+                    .setLimit(limit)
+                    .setOffset(offset)
+                    .setWithPayload(WithPayloadSelectorFactory.enable(true))
+                    .setWithVectors(WithVectorsSelectorFactory.enable(false))
+                    .build()
+            ).get();
+        }
     }
 
     private static Points.PrefetchQuery densePrefetch(int candidateLimit, Common.Filter filter) {
