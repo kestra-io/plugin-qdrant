@@ -8,6 +8,7 @@ import io.kestra.core.models.property.Property;
 import io.kestra.core.models.tasks.RunnableTask;
 import io.kestra.core.runners.RunContext;
 import io.qdrant.client.PointIdFactory;
+import io.qdrant.client.VectorFactory;
 import io.qdrant.client.VectorsFactory;
 import io.qdrant.client.grpc.Points;
 import io.swagger.v3.oas.annotations.media.Schema;
@@ -25,6 +26,7 @@ import com.google.common.util.concurrent.ListenableFuture;
 import com.google.common.util.concurrent.MoreExecutors;
 import reactor.core.publisher.Mono;
 
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -70,6 +72,31 @@ import java.util.concurrent.atomic.AtomicLong;
                           city: Paris
                           country: France
                 """
+        ),
+        @Example(
+            title = "Upsert points that carry a named dense vector and a named sparse vector, for hybrid retrieval",
+            full = true,
+            code = """
+                id: qdrant_upsert_hybrid
+                namespace: company.team
+
+                tasks:
+                  - id: upsert_points
+                    type: io.kestra.plugin.qdrant.Upsert
+                    host: "{{ secret('QDRANT_HOST') }}"
+                    apiKey: "{{ secret('QDRANT_API_KEY') }}"
+                    tlsEnabled: true
+                    collectionName: docs
+                    points:
+                      - id: 1
+                        vectors:
+                          text_dense: [0.05, 0.61, 0.76, 0.74]
+                          text_sparse:
+                            indices: [12, 104, 982]
+                            values: [0.84, 1.23, 0.41]
+                        payload:
+                          title: Invoice 2026-0042
+                """
         )
     }
 )
@@ -85,7 +112,11 @@ public class Upsert extends QdrantConnection implements RunnableTask<Upsert.Outp
 
     @Schema(
         title = "Points to upsert",
-        description = "Points data source, either an inline list of maps or a Kestra storage URI to an ION file. Each point must include a vector (dense 'vector' list or named 'vectors' map) and optionally an 'id' and 'payload' map.",
+        description = """
+            Points data source, either an inline list of maps or a Kestra storage URI to an ION file. Each point must \
+            include a vector (dense 'vector' list or named 'vectors' map) and optionally an 'id' and 'payload' map. \
+            In a named 'vectors' map, a dense vector is a list of numbers and a sparse vector is a map with equally long \
+            'indices' and 'values' lists.""",
         anyOf = {String.class, List.class, Map.class}
     )
     @NotNull
@@ -178,7 +209,9 @@ public class Upsert extends QdrantConnection implements RunnableTask<Upsert.Outp
             Map<String, Points.Vector> named = new LinkedHashMap<>();
             for (Map.Entry<?, ?> entry : vMap.entrySet()) {
                 String name = String.valueOf(entry.getKey());
-                if (entry.getValue() instanceof List<?> vList) {
+                if (entry.getValue() instanceof Map<?, ?> sparse) {
+                    named.put(name, toSparseVector(map.get("id"), name, sparse));
+                } else if (entry.getValue() instanceof List<?> vList) {
                     try {
                         List<Float> floats = vList.stream().map(n -> ((Number) n).floatValue()).toList();
                         named.put(name, Points.Vector.newBuilder().addAllData(floats).build());
@@ -186,7 +219,7 @@ public class Upsert extends QdrantConnection implements RunnableTask<Upsert.Outp
                         throw new IllegalArgumentException("Point '" + map.get("id") + "': named vector '" + name + "' must contain only numbers", e);
                     }
                 } else {
-                    throw new IllegalArgumentException("Point '" + map.get("id") + "': named vector '" + name + "' must be a list of numbers");
+                    throw new IllegalArgumentException("Point '" + map.get("id") + "': named vector '" + name + "' must be a list of numbers, or a map with 'indices' and 'values' for a sparse vector");
                 }
             }
             builder.setVectors(VectorsFactory.namedVectors(named));
@@ -200,6 +233,35 @@ public class Upsert extends QdrantConnection implements RunnableTask<Upsert.Outp
         }
 
         return builder.build();
+    }
+
+    private static Points.Vector toSparseVector(Object pointId, String name, Map<?, ?> sparse) {
+        var where = "Point '" + pointId + "': sparse vector '" + name + "'";
+        for (var key : sparse.keySet()) {
+            if (!"indices".equals(key) && !"values".equals(key)) {
+                throw new IllegalArgumentException(where + " has an unknown field '" + key + "', only 'indices' and 'values' are allowed");
+            }
+        }
+        if (!(sparse.get("indices") instanceof List<?> rawIndices) || !(sparse.get("values") instanceof List<?> rawValues)) {
+            throw new IllegalArgumentException(where + " needs both an 'indices' list and a 'values' list");
+        }
+
+        try {
+            var indices = toSparseIndices(new ArrayList<Object>(rawIndices), "indices");
+            var values = toFiniteFloats(new ArrayList<Object>(rawValues), "values");
+            if (indices.size() != values.size()) {
+                throw new IllegalArgumentException(
+                    "'indices' and 'values' must have the same number of elements, got: "
+                        + indices.size() + " indices and " + values.size() + " values"
+                );
+            }
+            if (indices.isEmpty()) {
+                throw new IllegalArgumentException("'indices' and 'values' must contain at least one entry");
+            }
+            return VectorFactory.vector(values, indices);
+        } catch (IllegalArgumentException e) {
+            throw new IllegalArgumentException(where + ": " + e.getMessage(), e);
+        }
     }
 
     @Builder

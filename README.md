@@ -27,11 +27,11 @@ Teams building AI and retrieval-augmented generation (RAG) pipelines require sca
 ## What
 
 Provides tasks under `io.kestra.plugin.qdrant`:
-- `CreateCollection`: Create vector collections with specified dimensions and distance metrics (`COSINE`, `DOT`, `EUCLID`, `MANHATTAN`).
+- `CreateCollection`: Create vector collections with specified dimensions and distance metrics (`COSINE`, `DOT`, `EUCLID`, `MANHATTAN`), optionally with a named dense vector and named sparse vector spaces (with an `IDF` modifier) for hybrid retrieval.
 - `DeleteCollection`: Remove collections and their associated vectors.
 - `CollectionInfo`: Retrieve metrics and payload indexes for a collection.
 - `CreatePayloadIndex`: Index a payload field with an explicit data type and optional completion wait.
-- `Upsert`: Batch upsert points with embeddings and payload metadata from inline lists or Kestra storage URIs (`kestra://`).
+- `Upsert`: Batch upsert points with embeddings (dense, named and sparse) and payload metadata from inline lists or Kestra storage URIs (`kestra://`).
 - `Get`: Retrieve points by ID with `FETCH`, `FETCH_ONE`, or `STORE` fetch modes.
 - `Query`: Vector similarity search supporting raw vectors or point IDs, filters, score thresholds, and multiple fetch modes.
 - `HybridQuery`: Hybrid retrieval over a named dense vector space and a named sparse vector space, bounded per-branch candidate limits, and server-side Reciprocal Rank Fusion.

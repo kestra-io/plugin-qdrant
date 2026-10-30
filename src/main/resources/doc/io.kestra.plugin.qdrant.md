@@ -12,11 +12,11 @@ All tasks inherit common connection properties:
 
 ## Tasks
 
-- `CreateCollection`: Creates a new single-vector collection configured with vector dimension size (`vectorSize`), distance metric (`COSINE`, `DOT`, `EUCLID`, or `MANHATTAN`), and optional on-disk payload storage. (Note: Collections with multiple named vectors should be provisioned via the Qdrant API or CLI).
+- `CreateCollection`: Creates a new collection configured with vector dimension size (`vectorSize`), distance metric (`COSINE`, `DOT`, `EUCLID`, or `MANHATTAN`), and optional on-disk payload storage. By default the dense vector is unnamed. Set `vectorName` to name it and `sparseVectors` to add named sparse vector spaces (with an optional `IDF` modifier) for hybrid retrieval. (Note: Collections with several named dense vectors should be provisioned via the Qdrant API or CLI).
 - `DeleteCollection`: Drops a collection and removes all stored vectors and payloads.
 - `CollectionInfo`: Retrieves point and vector statistics, distance metric and `payloadSchema`. Each payload index reports `dataType` and `points` (null if Qdrant does not report a count).
 - `CreatePayloadIndex`: Creates a payload index using `collectionName`, `fieldName` and `fieldSchema` (`KEYWORD`, `INTEGER`, `FLOAT`, `GEO`, `TEXT`, `BOOL`, `DATETIME` or `UUID`). `wait` defaults to true; false returns an acknowledged operation before the index is necessarily ready. The task `timeout` bounds long index builds. Check the returned operation `status` and `CollectionInfo.payloadSchema` before using an asynchronous index.
-- `Upsert`: Upserts points with vector embeddings (single dense vector or named vectors map) and metadata payloads. Supports streaming batch processing from inline lists or Kestra storage URIs (`kestra://`).
+- `Upsert`: Upserts points with vector embeddings (single dense vector, or a named vectors map whose entries are dense lists or sparse `indices` and `values` maps) and metadata payloads. Supports streaming batch processing from inline lists or Kestra storage URIs (`kestra://`).
 - `Get`: Retrieves points by their IDs with options to include payloads and vector embeddings. Outputs results inline (`FETCH`), as a single record (`FETCH_ONE`), or to Kestra internal storage (`STORE`).
 - `Query`: Performs vector similarity searches using either a raw embedding vector (`vector`) or an existing point ID (`vectorId`). Supports target vector space (`vectorName`) for collections using named vectors, result count limits (`limit`, with `topK` supported as an alias; `limit` takes precedence), score thresholds, payload filters, and fetch output modes (`FETCH`, `FETCH_ONE`, `STORE`).
 - `HybridQuery`: Queries one named dense vector space and one named sparse vector space in a single request and lets Qdrant fuse both candidate lists with Reciprocal Rank Fusion. See [Hybrid retrieval](#hybrid-retrieval).
@@ -29,7 +29,7 @@ All tasks inherit common connection properties:
 ### Requirements
 
 - Qdrant server 1.10 or later, which is where the `QueryPoints` prefetch and fusion API landed. The plugin is built against the Qdrant Java client 1.19.0 and is tested against Qdrant 1.19.1.
-- The collection must already declare both spaces: a named dense vector in its `vectors` config and a named sparse vector in its `sparse_vectors` config. `HybridQuery` does not create collections, does not configure sparse vector spaces and does not upsert sparse vectors. Provision the collection and ingest sparse vectors through the Qdrant API or client, then point `denseVectorName` and `sparseVectorName` at the configured names. An unknown name fails the run with the server error `Not existing vector name error`.
+- The collection must declare both spaces: a named dense vector in its `vectors` config and a named sparse vector in its `sparse_vectors` config. `CreateCollection` can create that layout with `vectorName` and `sparseVectors` (a sparse space can use the `IDF` modifier for BM25-like weighting), and `Upsert` loads points whose named `vectors` map holds a dense list and a sparse `{indices, values}` map. `HybridQuery` itself only queries: it neither creates collections nor writes points. Point `denseVectorName` and `sparseVectorName` at the configured names. An unknown name fails the run with the server error `Not existing vector name error`.
 
 ### Query vectors
 
@@ -48,7 +48,7 @@ All tasks inherit common connection properties:
 
 ### Scope
 
-Only RRF is exposed. Distribution-Based Score Fusion, RRF parameter tuning and native sparse collection or upsert configuration are not part of this task. Hybrid retrieval is opt-in and `Query` is unchanged: fusion does not improve every workload, so measure dense-only against fused retrieval on your own labelled queries before adopting it.
+Only RRF is exposed. Distribution-Based Score Fusion and RRF parameter tuning are not part of this task. Hybrid retrieval is opt-in and `Query` is unchanged: fusion does not improve every workload, so measure dense-only against fused retrieval on your own labelled queries before adopting it.
 
 ## Filter DSL
 

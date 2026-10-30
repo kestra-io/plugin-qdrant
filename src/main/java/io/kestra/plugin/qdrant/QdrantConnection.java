@@ -38,6 +38,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -99,6 +100,66 @@ public abstract class QdrantConnection extends Task implements QdrantConnectionI
         }
 
         return new QdrantClient(builder.build());
+    }
+
+    protected static List<Float> toFiniteFloats(List<Object> values, String name) {
+        var result = new ArrayList<Float>(values.size());
+        for (var value : values) {
+            if (!(value instanceof Number number)) {
+                throw new IllegalArgumentException(
+                    "'" + name + "' must be a list of numbers, got element: " + value
+                );
+            }
+            var asFloat = number.floatValue();
+            if (Float.isNaN(asFloat) || Float.isInfinite(asFloat)) {
+                throw new IllegalArgumentException(
+                    "'" + name + "' must contain finite numbers only, got element: " + number
+                );
+            }
+            result.add(asFloat);
+        }
+        return result;
+    }
+
+    protected static List<Integer> toSparseIndices(List<Object> values, String name) {
+        var result = new ArrayList<Integer>(values.size());
+        var seen = new HashSet<Integer>();
+        for (var value : values) {
+            if (!(value instanceof Number number)) {
+                throw new IllegalArgumentException(
+                    "'" + name + "' must be a list of numbers, got element: " + value
+                );
+            }
+            var asDouble = number.doubleValue();
+            if (Double.isNaN(asDouble) || Double.isInfinite(asDouble)) {
+                throw new IllegalArgumentException(
+                    "'" + name + "' must contain finite numbers only, got element: " + number
+                );
+            }
+            if (asDouble != Math.rint(asDouble)) {
+                throw new IllegalArgumentException(
+                    "'" + name + "' must contain whole numbers, got element: " + number
+                );
+            }
+            if (asDouble < 0) {
+                throw new IllegalArgumentException(
+                    "'" + name + "' must contain non-negative indices, got element: " + number
+                );
+            }
+            if (asDouble > Integer.MAX_VALUE) {
+                throw new IllegalArgumentException(
+                    "'" + name + "' must contain indices lower than or equal to " + Integer.MAX_VALUE + ", got element: " + number
+                );
+            }
+            var index = (int) asDouble;
+            if (!seen.add(index)) {
+                throw new IllegalArgumentException(
+                    "'" + name + "' must not contain duplicate indices, got index twice: " + index
+                );
+            }
+            result.add(index);
+        }
+        return result;
     }
 
     protected static void validateRange(String property, int value, int min, int max) {
